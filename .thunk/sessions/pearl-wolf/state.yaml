@@ -1,9 +1,0 @@
-turn: 2
-phase: approved
-updated_at: '2025-12-30T23:50:35.255Z'
-agents:
-  opus: done
-  codex: done
-agent_plan_ids:
-  opus: dawn-canyon
-  codex: good-bay
