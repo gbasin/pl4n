@@ -36,6 +36,23 @@ describe("generateUniqueName", () => {
     const name = generateUniqueName(existing);
     expect(existing.has(name)).toBe(false);
   });
+
+  it("falls back with a suffix after repeated collisions", () => {
+    const originalRandom = Math.random;
+    const originalUUID = crypto.randomUUID;
+    Math.random = () => 0;
+    crypto.randomUUID = () => "abcd0000-0000-0000-0000-000000000000";
+
+    try {
+      const base = `${ADJECTIVES[0]}-${NOUNS[0]}`;
+      const existing = new Set([base]);
+      const name = generateUniqueName(existing);
+      expect(name).toBe(`${base}-abcd`);
+    } finally {
+      Math.random = originalRandom;
+      crypto.randomUUID = originalUUID;
+    }
+  });
 });
 
 describe("vocabulary sizes", () => {

@@ -72,6 +72,22 @@ describe("SessionManager", () => {
     });
   });
 
+  it("returns null for missing session", async () => {
+    await withTempDir(async (root) => {
+      const manager = new SessionManager(path.join(root, ".thunk"));
+      const loaded = await manager.loadSession("missing-session");
+      expect(loaded).toBeNull();
+    });
+  });
+
+  it("returns false when cleaning missing session", async () => {
+    await withTempDir(async (root) => {
+      const manager = new SessionManager(path.join(root, ".thunk"));
+      const cleaned = await manager.cleanSession("missing-session");
+      expect(cleaned).toBe(false);
+    });
+  });
+
   it("detects unanswered questions", async () => {
     await withTempDir(async (root) => {
       const manager = new SessionManager(path.join(root, ".thunk"));
