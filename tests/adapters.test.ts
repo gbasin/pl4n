@@ -238,6 +238,46 @@ describe("Adapters", () => {
     });
   });
 
+  it("Claude adapter includes add_dir when no project root is provided", async () => {
+    await withTempDir(async (root) => {
+      const logFile = path.join(root, "claude.log");
+      const outputFile = path.join(root, "output.md");
+      const adapter = new ClaudeCodeAdapter({
+        id: "claude",
+        type: "claude",
+        model: "sonnet",
+        claude: { allowedTools: ["Read"], addDir: ["extra-dir"] },
+      });
+
+      const originalSpawn = Bun.spawn;
+      const bunSpawn = Bun as unknown as { spawn: (options: any) => Bun.Subprocess };
+      const commands: string[][] = [];
+      bunSpawn.spawn = (options: { cmd: string[] }) => {
+        commands.push(options.cmd);
+        return {
+          stdout: null,
+          stderr: null,
+          exited: Promise.resolve(0),
+          exitCode: 0,
+          kill: () => {},
+        } as unknown as Bun.Subprocess;
+      };
+
+      try {
+        adapter.spawn({ worktree: root, prompt: "hello", outputFile, logFile });
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      } finally {
+        bunSpawn.spawn = originalSpawn as unknown as (options: any) => Bun.Subprocess;
+      }
+
+      expect(commands.length).toBe(1);
+      expect(commands[0]).toContain("--add-dir");
+      expect(commands[0]).toContain("extra-dir");
+      expect(commands[0]).toContain("--allowedTools");
+      expect(commands[0]).toContain("Read");
+    });
+  });
+
   it("Claude adapters handle missing session files", async () => {
     await withTempDir(async (root) => {
       const logFile = path.join(root, "claude.log");
@@ -377,6 +417,70 @@ describe("Adapters", () => {
     });
   });
 
+  it("Codex adapter uses output file path when log file is empty", async () => {
+    await withTempDir(async (root) => {
+      const outputFile = path.join(root, "output.md");
+      await fs.writeFile(outputFile, "# Plan", "utf8");
+
+      const adapter = new CodexCLIAdapter({
+        id: "codex",
+        type: "codex",
+        model: "codex-5.2",
+        codex: { mcp: { servers: [{ name: "test", command: ["npx", "server"] }] } },
+      });
+
+      const originalWriteFile = fs.writeFile;
+      const originalAppendFile = fs.appendFile;
+      (fs as unknown as { writeFile: typeof fs.writeFile }).writeFile = async (
+        file,
+        data,
+        options,
+      ) => {
+        if (file === "") {
+          return;
+        }
+        return originalWriteFile(file, data, options as Parameters<typeof fs.writeFile>[2]);
+      };
+      (fs as unknown as { appendFile: typeof fs.appendFile }).appendFile = async (
+        file,
+        data,
+        options,
+      ) => {
+        if (file === "") {
+          return;
+        }
+        return originalAppendFile(file, data, options as Parameters<typeof fs.appendFile>[2]);
+      };
+
+      const originalSpawn = Bun.spawn;
+      const bunSpawn = Bun as unknown as { spawn: (options: any) => Bun.Subprocess };
+      bunSpawn.spawn = () => {
+        return {
+          stdout: null,
+          stderr: null,
+          exited: Promise.resolve(0),
+          exitCode: 0,
+          kill: () => {},
+        } as unknown as Bun.Subprocess;
+      };
+
+      try {
+        adapter.spawn({ worktree: root, prompt: "hello", outputFile, logFile: "" });
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      } finally {
+        bunSpawn.spawn = originalSpawn as unknown as (options: any) => Bun.Subprocess;
+        (fs as unknown as { writeFile: typeof fs.writeFile }).writeFile = originalWriteFile;
+        (fs as unknown as { appendFile: typeof fs.appendFile }).appendFile = originalAppendFile;
+      }
+
+      const configPath = path.join(path.dirname(outputFile), "codex.config.json");
+      const configData = JSON.parse(await fs.readFile(configPath, "utf8"));
+      expect(configData).toEqual({
+        mcp: { servers: [{ name: "test", command: ["npx", "server"] }] },
+      });
+    });
+  });
+
   it("Codex adapter writes config file when MCP config is set", async () => {
     await withTempDir(async (root) => {
       const binDir = path.join(root, "bin");
@@ -425,6 +529,75 @@ for (const line of lines) {
           mcp: { servers: [{ name: "test", command: ["npx", "server"] }] },
         });
       });
+    });
+  });
+
+  it("Codex spawn writes config file synchronously when config is present", async () => {
+    await withTempDir(async (root) => {
+      const logFile = path.join(root, "codex.log");
+      const logFileSync = path.join(root, "codex-sync.log");
+      const outputFile = path.join(root, "output.md");
+      const adapter = new CodexCLIAdapter({
+        id: "codex",
+        type: "codex",
+        model: "codex-5.2",
+        codex: { mcp: { servers: [{ name: "test", command: ["npx", "server"] }] } },
+      });
+      const syncAdapter = new CodexCLISyncAdapter({
+        id: "codex-sync",
+        type: "codex",
+        model: "codex-5.2",
+        codex: { mcp: { servers: [{ name: "test", command: ["npx", "server"] }] } },
+      });
+
+      const originalSpawn = Bun.spawn;
+      const bunSpawn = Bun as unknown as { spawn: (options: any) => Bun.Subprocess };
+      const commands: string[][] = [];
+      bunSpawn.spawn = (options: { cmd: string[] }) => {
+        commands.push(options.cmd);
+        return {
+          stdout: null,
+          stderr: null,
+          exited: Promise.resolve(0),
+          exitCode: 0,
+          kill: () => {},
+        } as unknown as Bun.Subprocess;
+      };
+
+      try {
+        adapter.spawn({ worktree: root, prompt: "hello", outputFile, logFile });
+        syncAdapter.spawn({ worktree: root, prompt: "hello", outputFile, logFile: logFileSync });
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      } finally {
+        bunSpawn.spawn = originalSpawn as unknown as (options: any) => Bun.Subprocess;
+      }
+
+      expect(commands.length).toBe(2);
+      expect(commands[0]).toContain("--config");
+      expect(commands[1]).toContain("--config");
+
+      const configPath = path.join(path.dirname(logFile), "codex.config.json");
+      const configData = JSON.parse(await fs.readFile(configPath, "utf8"));
+      expect(configData).toEqual({
+        mcp: { servers: [{ name: "test", command: ["npx", "server"] }] },
+      });
+    });
+  });
+
+  it("Codex adapter throws when config includes mcp twice", async () => {
+    await withTempDir(async (root) => {
+      const adapter = new CodexCLIAdapter({
+        id: "codex",
+        type: "codex",
+        model: "codex-5.2",
+        codex: { config: { mcp: { servers: [] } }, mcp: { servers: [] } },
+      });
+      const logFile = path.join(root, "codex.log");
+      const outputFile = path.join(root, "output.md");
+
+      expect(() => adapter.spawn({ worktree: root, prompt: "hello", outputFile, logFile })).toThrow(
+        "codex.mcp conflicts",
+      );
     });
   });
 
@@ -510,6 +683,52 @@ for (const line of lines) {
         expect(output).toBe("# New Plan");
         expect(await fs.readFile(outputFile, "utf8")).toBe("# New Plan");
       });
+    });
+  });
+
+  it("Codex adapter ignores prefer-output when dangerously bypassing", async () => {
+    await withTempDir(async (root) => {
+      const adapter = new CodexCLISyncAdapter({
+        id: "codex",
+        type: "codex",
+        model: "codex-5.2",
+        codex: { dangerouslyBypass: true },
+      });
+      const outputFile = path.join(root, "plan.md");
+      const logFile = path.join(root, "codex.log");
+      await fs.writeFile(outputFile, "# Old Plan", "utf8");
+
+      const originalSpawn = Bun.spawn;
+      const bunSpawn = Bun as unknown as { spawn: (options: any) => Bun.Subprocess };
+      const commands: string[][] = [];
+      bunSpawn.spawn = (options: { cmd: string[] }) => {
+        commands.push(options.cmd);
+        return {
+          stdout: null,
+          stderr: null,
+          exited: Promise.resolve(0),
+          exitCode: 0,
+          kill: () => {},
+        } as unknown as Bun.Subprocess;
+      };
+
+      let output = "";
+      try {
+        const [success, result] = await adapter.runSync({
+          worktree: root,
+          prompt: "test",
+          outputFile,
+          logFile,
+        });
+        expect(success).toBe(true);
+        output = result;
+      } finally {
+        bunSpawn.spawn = originalSpawn as unknown as (options: any) => Bun.Subprocess;
+      }
+
+      expect(commands[0]).toContain("--dangerously-bypass-approvals-and-sandbox");
+      expect(output).toBe("# Old Plan");
+      expect(await fs.readFile(outputFile, "utf8")).toBe("# Old Plan");
     });
   });
 

@@ -307,10 +307,10 @@ function parseAgentConfig(value: unknown, field: string, defaults: AgentDefaults
 
 function applyAgentDefaults(agent: AgentConfig, defaults: AgentDefaults): AgentConfig {
   if (agent.type === "claude") {
-    return { ...agent, claude: mergeClaudeConfig(defaults.claude, agent.claude) };
+    return { ...agent, claude: mergeClaudeConfig(agent.claude, defaults.claude) };
   }
   if (agent.type === "codex") {
-    return { ...agent, codex: mergeCodexConfig(defaults.codex, agent.codex) };
+    return { ...agent, codex: mergeCodexConfig(agent.codex, defaults.codex) };
   }
   return agent;
 }

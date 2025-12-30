@@ -179,6 +179,34 @@ describe("ThunkConfig", () => {
     }
   });
 
+  it("applies defaults when agents and synthesizer are omitted", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "thunk-config-"));
+    const thunkDir = path.join(root, ".thunk");
+    try {
+      await fs.mkdir(thunkDir, { recursive: true });
+      const yaml = [
+        "claude:",
+        "  allowed_tools:",
+        "    - Read",
+        "codex:",
+        "  search: false",
+        "",
+      ].join("\n");
+      await fs.writeFile(path.join(thunkDir, "thunk.yaml"), yaml, "utf8");
+
+      const config = await ThunkConfig.loadFromThunkDir(thunkDir);
+      expect(config.agents.length).toBe(2);
+      const claudeAgent = config.agents.find((agent) => agent.type === "claude");
+      const codexAgent = config.agents.find((agent) => agent.type === "codex");
+
+      expect(claudeAgent?.claude?.allowedTools).toEqual(["Read"]);
+      expect(codexAgent?.codex?.search).toBe(false);
+      expect(config.synthesizer.claude?.allowedTools).toEqual(["Read"]);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("falls back to defaults when config is missing", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "thunk-config-"));
     try {
