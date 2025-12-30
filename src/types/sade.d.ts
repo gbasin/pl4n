@@ -3,6 +3,7 @@ declare module "sade" {
 
   export interface Command {
     command(name: string, description?: string): Command;
+    describe(description: string): Command;
     option(flags: string, description?: string, defaultValue?: string | number | boolean): Command;
     action(handler: Handler): Command;
     parse(argv?: string[]): void;

@@ -10,13 +10,13 @@ function runCli(args: string[], cwd: string) {
     cmd: ["bun", "src/index.ts", ...args],
     cwd,
     stdout: "pipe",
-    stderr: "pipe"
+    stderr: "pipe",
   });
 
   return {
     exitCode: result.exitCode ?? 0,
     stdout: decoder.decode(result.stdout),
-    stderr: decoder.decode(result.stderr)
+    stderr: decoder.decode(result.stderr),
   };
 }
 
@@ -95,13 +95,10 @@ describe("CLI", () => {
       const repoRoot = path.resolve(import.meta.dir, "..");
       const thunkDir = path.join(root, ".thunk");
 
-      const result = runCli([
-        "--thunk-dir",
-        thunkDir,
-        "--pretty",
-        "init",
-        "Test feature"
-      ], repoRoot);
+      const result = runCli(
+        ["--thunk-dir", thunkDir, "--pretty", "init", "Test feature"],
+        repoRoot,
+      );
 
       expect(result.stdout).toContain("\n");
       expect(result.stdout).toContain("  ");
@@ -116,7 +113,10 @@ describe("CLI", () => {
       const init = runCli(["--thunk-dir", thunkDir, "init", "Test feature"], repoRoot);
       const sessionId = JSON.parse(init.stdout).session_id as string;
 
-      const approve = runCli(["--thunk-dir", thunkDir, "approve", "--session", sessionId], repoRoot);
+      const approve = runCli(
+        ["--thunk-dir", thunkDir, "approve", "--session", sessionId],
+        repoRoot,
+      );
       expect(approve.exitCode).toBe(1);
 
       const cont = runCli(["--thunk-dir", thunkDir, "continue", "--session", sessionId], repoRoot);

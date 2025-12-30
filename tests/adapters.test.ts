@@ -37,13 +37,13 @@ const result = "# Plan from Claude";
 const payload = JSON.stringify({ session_id: sessionId, result });
 const mid = Math.floor(payload.length / 2);
 process.stdout.write(payload.slice(0, mid));
-await new Promise((r) => setTimeout(r, 20));
 process.stdout.write(payload.slice(mid));
-`
+`,
       );
 
       const originalPath = process.env.PATH || "";
-      process.env.PATH = `${binDir}${path.delimiter}${originalPath}`;
+      const bunDir = path.dirname(process.execPath);
+      process.env.PATH = `${binDir}${path.delimiter}${bunDir}${path.delimiter}${originalPath}`;
 
       const adapter = new ClaudeCodeSyncAdapter({ id: "opus", type: "claude", model: "opus" });
       const outputFile = path.join(root, "output.md");
@@ -55,7 +55,7 @@ process.stdout.write(payload.slice(mid));
         prompt: "test",
         outputFile,
         logFile,
-        sessionFile
+        sessionFile,
       });
 
       expect(success).toBe(true);
@@ -68,7 +68,7 @@ process.stdout.write(payload.slice(mid));
         outputFile,
         logFile,
         sessionFile,
-        appendLog: true
+        appendLog: true,
       });
 
       expect(success2).toBe(true);
@@ -98,14 +98,14 @@ const lines = [
   JSON.stringify({ type: "item.message", role: "assistant", content: "Final output" })
 ];
 for (const line of lines) {
-  process.stdout.write(line + "\n");
-  await new Promise((r) => setTimeout(r, 10));
+  process.stdout.write(line + "\\n");
 }
-`
+`,
       );
 
       const originalPath = process.env.PATH || "";
-      process.env.PATH = `${binDir}${path.delimiter}${originalPath}`;
+      const bunDir = path.dirname(process.execPath);
+      process.env.PATH = `${binDir}${path.delimiter}${bunDir}${path.delimiter}${originalPath}`;
 
       const adapter = new CodexCLISyncAdapter({ id: "codex", type: "codex", model: "codex" });
       const outputFile = path.join(root, "codex-output.md");
@@ -117,7 +117,7 @@ for (const line of lines) {
         prompt: "test",
         outputFile,
         logFile,
-        sessionFile
+        sessionFile,
       });
 
       expect(success).toBe(true);
@@ -130,7 +130,7 @@ for (const line of lines) {
         outputFile,
         logFile,
         sessionFile,
-        appendLog: true
+        appendLog: true,
       });
 
       expect(success2).toBe(true);

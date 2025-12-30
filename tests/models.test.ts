@@ -1,32 +1,26 @@
 import path from "path";
 import { describe, expect, it } from "bun:test";
 
-import {
-  AgentStatus,
-  Phase,
-  SessionPaths,
-  SessionState,
-  ThunkConfig
-} from "../src/models";
+import { AgentStatus, Phase, SessionPaths, SessionState, ThunkConfig } from "../src/models";
 
 describe("Phase", () => {
   it("has expected values", () => {
-    expect(Phase.Initializing).toBe("initializing");
-    expect(Phase.Drafting).toBe("drafting");
-    expect(Phase.PeerReview).toBe("peer_review");
-    expect(Phase.Synthesizing).toBe("synthesizing");
-    expect(Phase.UserReview).toBe("user_review");
-    expect(Phase.Approved).toBe("approved");
-    expect(Phase.Error).toBe("error");
+    expect(String(Phase.Initializing)).toBe("initializing");
+    expect(String(Phase.Drafting)).toBe("drafting");
+    expect(String(Phase.PeerReview)).toBe("peer_review");
+    expect(String(Phase.Synthesizing)).toBe("synthesizing");
+    expect(String(Phase.UserReview)).toBe("user_review");
+    expect(String(Phase.Approved)).toBe("approved");
+    expect(String(Phase.Error)).toBe("error");
   });
 });
 
 describe("AgentStatus", () => {
   it("has expected values", () => {
-    expect(AgentStatus.Pending).toBe("pending");
-    expect(AgentStatus.Working).toBe("working");
-    expect(AgentStatus.Done).toBe("done");
-    expect(AgentStatus.Error).toBe("error");
+    expect(String(AgentStatus.Pending)).toBe("pending");
+    expect(String(AgentStatus.Working)).toBe("working");
+    expect(String(AgentStatus.Done)).toBe("done");
+    expect(String(AgentStatus.Error)).toBe("error");
   });
 });
 
@@ -41,7 +35,7 @@ describe("SessionState", () => {
       createdAt: now,
       updatedAt: now,
       agents: { opus: AgentStatus.Done },
-      agentPlanIds: { opus: "sunny-glade" }
+      agentPlanIds: { opus: "sunny-glade" },
     });
 
     const dict = state.toDict();
@@ -69,11 +63,9 @@ describe("SessionPaths", () => {
     expect(paths.turnFile(1)).toBe(path.join(root, "turns", "001.md"));
     expect(paths.turnSnapshotDir(10)).toBe(path.join(root, "turns", "010"));
     expect(paths.agentPlanFile("sunny-glade")).toBe(path.join(root, "sunny-glade.md"));
-    expect(paths.agentLogFile("sunny-glade")).toBe(
-      path.join(root, "agents", "sunny-glade.log")
-    );
+    expect(paths.agentLogFile("sunny-glade")).toBe(path.join(root, "agents", "sunny-glade.log"));
     expect(paths.agentSessionFile("sunny-glade")).toBe(
-      path.join(root, "agents", "sunny-glade", "cli_session_id.txt")
+      path.join(root, "agents", "sunny-glade", "cli_session_id.txt"),
     );
     expect(paths.agentDir("sunny-glade")).toBe(path.join(root, "agents", "sunny-glade"));
   });

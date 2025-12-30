@@ -32,7 +32,7 @@ describe("TurnOrchestrator", () => {
         `#!/usr/bin/env bun
 const payload = JSON.stringify({ session_id: "sess-1", result: "# Plan from Claude" });
 process.stdout.write(payload);
-`
+`,
       );
 
       await writeExecutable(
@@ -43,13 +43,14 @@ const lines = [
   JSON.stringify({ type: "item.message", role: "assistant", content: "# Plan from Codex" })
 ];
 for (const line of lines) {
-  process.stdout.write(line + "\n");
+  process.stdout.write(line + "\\n");
 }
-`
+`,
       );
 
       const originalPath = process.env.PATH || "";
-      process.env.PATH = `${binDir}${path.delimiter}${originalPath}`;
+      const bunDir = path.dirname(process.execPath);
+      process.env.PATH = `${binDir}${path.delimiter}${bunDir}${path.delimiter}${originalPath}`;
 
       const manager = new SessionManager(path.join(root, ".thunk"));
       const state = await manager.createSession("Test task");

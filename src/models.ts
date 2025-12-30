@@ -7,14 +7,14 @@ export enum Phase {
   Synthesizing = "synthesizing",
   UserReview = "user_review",
   Approved = "approved",
-  Error = "error"
+  Error = "error",
 }
 
 export enum AgentStatus {
   Pending = "pending",
   Working = "working",
   Done = "done",
-  Error = "error"
+  Error = "error",
 }
 
 export interface AgentConfig {
@@ -65,10 +65,8 @@ export class SessionState {
       phase: this.phase,
       created_at: this.createdAt.toISOString(),
       updated_at: this.updatedAt.toISOString(),
-      agents: Object.fromEntries(
-        Object.entries(this.agents).map(([key, value]) => [key, value])
-      ),
-      agent_plan_ids: this.agentPlanIds
+      agents: Object.fromEntries(Object.entries(this.agents).map(([key, value]) => [key, value])),
+      agent_plan_ids: this.agentPlanIds,
     };
   }
 }
@@ -132,9 +130,9 @@ export class ThunkConfig {
     return new ThunkConfig({
       agents: [
         { id: "opus", type: "claude", model: "opus", enabled: true },
-        { id: "codex", type: "codex", model: "codex-mini-latest", enabled: true }
+        { id: "codex", type: "codex", model: "codex-mini-latest", enabled: true },
       ],
-      synthesizer: { id: "synthesizer", type: "claude", model: "opus", enabled: true }
+      synthesizer: { id: "synthesizer", type: "claude", model: "opus", enabled: true },
     });
   }
 }

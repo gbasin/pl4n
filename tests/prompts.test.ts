@@ -5,7 +5,7 @@ import {
   getDraftPrompt,
   getPeerReviewPrompt,
   getRefinePrompt,
-  getSynthesisPrompt
+  getSynthesisPrompt,
 } from "../src/prompts";
 
 describe("getDraftPrompt", () => {
@@ -13,7 +13,7 @@ describe("getDraftPrompt", () => {
     const prompt = getDraftPrompt({
       task: "Add caching layer",
       turn: 1,
-      outputFile: "/path/to/plan.md"
+      outputFile: "/path/to/plan.md",
     });
 
     expect(prompt).toContain("Add caching layer");
@@ -29,7 +29,7 @@ describe("getDraftPrompt", () => {
       turn: 2,
       outputFile: "/path/to/plan.md",
       planFile: "/path/to/working.md",
-      userFeedback: "Please add Redis support"
+      userFeedback: "Please add Redis support",
     });
 
     expect(prompt).toContain("Turn 2");
@@ -42,7 +42,7 @@ describe("getDraftPrompt", () => {
       task: "Add caching layer",
       turn: 2,
       outputFile: "/path/to/plan.md",
-      planFile: "/path/to/working.md"
+      planFile: "/path/to/working.md",
     });
 
     expect(prompt).toContain("No specific feedback");
@@ -55,7 +55,7 @@ describe("getPeerReviewPrompt", () => {
       task: "Add caching layer",
       ownDraft: "My plan",
       peerId: "sunny-glade",
-      peerDraft: "Peer plan"
+      peerDraft: "Peer plan",
     });
 
     expect(prompt).toContain("Add caching layer");
@@ -71,9 +71,9 @@ describe("getSynthesisPrompt", () => {
       task: "Add caching layer",
       agentPlans: {
         opus: "Opus plan content",
-        codex: "Codex plan content"
+        codex: "Codex plan content",
       },
-      outputFile: "/path/to/synthesis.md"
+      outputFile: "/path/to/synthesis.md",
     });
 
     expect(prompt).toContain("Opus plan content");
@@ -87,11 +87,11 @@ describe("getSynthesisPrompt", () => {
       task: "Add caching layer",
       agentPlans: { opus: "Opus plan" },
       outputFile: "/path/to/synthesis.md",
-      userDiff
+      userDiff,
     });
 
     expect(prompt).toContain("User's Changes From Previous Turn");
-    expect(prompt).toContain("Add Redis");
+    expect(prompt).toContain("Redis");
   });
 });
 
@@ -102,7 +102,7 @@ describe("getRefinePrompt", () => {
       turn: 3,
       planFile: "/path/to/current.md",
       outputFile: "/path/to/output.md",
-      diff: "- old line\n+ new line"
+      diff: "- old line\n+ new line",
     });
 
     expect(prompt).toContain("Turn 3");

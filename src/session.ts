@@ -29,13 +29,13 @@ export class SessionManager {
       turn: 1,
       phase: Phase.Initializing,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     });
 
     const meta = {
       session_id: sessionId,
       task,
-      created_at: now.toISOString()
+      created_at: now.toISOString(),
     };
 
     await fs.writeFile(paths.meta, dump(meta), "utf8");
@@ -72,9 +72,9 @@ export class SessionManager {
       createdAt: new Date(meta.created_at),
       updatedAt: new Date(stateData.updated_at),
       agents: Object.fromEntries(
-        Object.entries(stateData.agents ?? {}).map(([key, value]) => [key, value as AgentStatus])
+        Object.entries(stateData.agents ?? {}).map(([key, value]) => [key, value as AgentStatus]),
       ),
-      agentPlanIds: stateData.agent_plan_ids ?? {}
+      agentPlanIds: stateData.agent_plan_ids ?? {},
     });
   }
 
@@ -88,10 +88,8 @@ export class SessionManager {
       turn: state.turn,
       phase: state.phase,
       updated_at: state.updatedAt.toISOString(),
-      agents: Object.fromEntries(
-        Object.entries(state.agents).map(([key, value]) => [key, value])
-      ),
-      agent_plan_ids: state.agentPlanIds
+      agents: Object.fromEntries(Object.entries(state.agents).map(([key, value]) => [key, value])),
+      agent_plan_ids: state.agentPlanIds,
     };
 
     await fs.writeFile(paths.state, dump(stateData), "utf8");

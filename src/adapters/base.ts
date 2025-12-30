@@ -56,7 +56,7 @@ export abstract class AgentAdapter {
       prompt: params.prompt,
       outputFile: params.outputFile,
       logFile: params.logFile,
-      sessionFile: params.sessionFile
+      sessionFile: params.sessionFile,
     });
 
     let timedOut = false;

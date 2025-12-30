@@ -31,7 +31,10 @@ function readSessionIdSync(sessionFile?: string): string | null {
   }
 }
 
-async function writeSessionId(sessionFile: string | undefined, sessionId: string | null): Promise<void> {
+async function writeSessionId(
+  sessionFile: string | undefined,
+  sessionId: string | null,
+): Promise<void> {
   if (!sessionFile || !sessionId) {
     return;
   }
@@ -89,14 +92,14 @@ const ALLOWED_TOOLS = [
   "Bash(uniq:*)",
   "Bash(xargs:*)",
   "Bash(sed:*)",
-  "Bash(awk:*)"
+  "Bash(awk:*)",
 ];
 
 function buildCmd(
   config: AgentConfig,
   prompt: string,
   sessionId?: string | null,
-  projectRoot?: string | null
+  projectRoot?: string | null,
 ): string[] {
   const cmd = ["claude", "--print", "--output-format", "json"];
 
@@ -153,10 +156,7 @@ async function streamToLog(params: {
     return output;
   };
 
-  const [stdoutText, stderrText] = await Promise.all([
-    readStream(stdout),
-    readStream(stderr)
-  ]);
+  const [stdoutText, stderrText] = await Promise.all([readStream(stdout), readStream(stderr)]);
 
   return { stdoutText, stderrText };
 }
@@ -173,10 +173,16 @@ export class ClaudeCodeAdapter extends AgentAdapter {
     const sessionId = readSessionIdSync(sessionFile);
     const cmd = buildCmd(this.config, prompt, sessionId);
 
-    const process = Bun.spawn({ cmd, cwd: worktree, stdout: "pipe", stderr: "pipe" });
-    void streamToLog({ stdout: process.stdout, stderr: process.stderr, logFile, appendLog: false });
+    const proc = Bun.spawn({
+      cmd,
+      cwd: worktree,
+      env: process.env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    void streamToLog({ stdout: proc.stdout, stderr: proc.stderr, logFile, appendLog: false });
 
-    return new AgentHandle(this.config.id, process, logFile);
+    return new AgentHandle(this.config.id, proc, logFile);
   }
 
   getName(): string {
@@ -195,9 +201,15 @@ export class ClaudeCodeSyncAdapter extends AgentAdapter {
     const { worktree, prompt, logFile, sessionFile } = params;
     const sessionId = readSessionIdSync(sessionFile);
     const cmd = buildCmd(this.config, prompt, sessionId, worktree);
-    const process = Bun.spawn({ cmd, cwd: worktree, stdout: "pipe", stderr: "pipe" });
-    void streamToLog({ stdout: process.stdout, stderr: process.stderr, logFile, appendLog: false });
-    return new AgentHandle(this.config.id, process, logFile);
+    const proc = Bun.spawn({
+      cmd,
+      cwd: worktree,
+      env: process.env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    void streamToLog({ stdout: proc.stdout, stderr: proc.stderr, logFile, appendLog: false });
+    return new AgentHandle(this.config.id, proc, logFile);
   }
 
   async runSync(params: {
@@ -215,8 +227,9 @@ export class ClaudeCodeSyncAdapter extends AgentAdapter {
     const proc = Bun.spawn({
       cmd,
       cwd: params.worktree,
+      env: process.env,
       stdout: "pipe",
-      stderr: "pipe"
+      stderr: "pipe",
     });
 
     const timeoutMs = params.timeout ? params.timeout * 1000 : null;
@@ -226,7 +239,7 @@ export class ClaudeCodeSyncAdapter extends AgentAdapter {
       stdout: proc.stdout,
       stderr: proc.stderr,
       logFile: params.logFile,
-      appendLog: params.appendLog ?? false
+      appendLog: params.appendLog ?? false,
     });
 
     const exitPromise = proc.exited;
@@ -274,10 +287,19 @@ export class ClaudeCodeSyncAdapter extends AgentAdapter {
     if (proc.exitCode === 0) {
       try {
         const file = Bun.file(params.outputFile);
-        if (!(await file.exists()) || file.size === 0) {
+        const exists = await file.exists();
+        if (!exists) {
           await fs.writeFile(params.outputFile, outputText, "utf8");
+          return [true, outputText];
         }
-        return [true, await file.text()];
+
+        const stat = await fs.stat(params.outputFile);
+        if (stat.size === 0) {
+          await fs.writeFile(params.outputFile, outputText, "utf8");
+          return [true, outputText];
+        }
+
+        return [true, await fs.readFile(params.outputFile, "utf8")];
       } catch {
         return [true, outputText];
       }

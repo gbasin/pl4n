@@ -195,7 +195,7 @@ export function getDraftPrompt(params: {
     return format(DRAFT_PROMPT_INITIAL, {
       task,
       output_file: outputFile,
-      plan_format: PLAN_FORMAT
+      plan_format: PLAN_FORMAT,
     });
   }
 
@@ -205,7 +205,7 @@ export function getDraftPrompt(params: {
     plan_file: planFile ?? "",
     user_feedback: userFeedback || "No specific feedback - improve as you see fit.",
     output_file: outputFile,
-    plan_format: PLAN_FORMAT
+    plan_format: PLAN_FORMAT,
   });
 }
 
@@ -221,7 +221,7 @@ export function getPeerReviewPrompt(params: {
     own_draft: ownDraft,
     peer_id: peerId,
     peer_draft: peerDraft,
-    plan_format: PLAN_FORMAT
+    plan_format: PLAN_FORMAT,
   });
 }
 
@@ -238,14 +238,16 @@ export function getSynthesisPrompt(params: {
     plansText += `### ${agentId}\n\n${plan}\n\n`;
   }
 
-  const userChangesSection = userDiff ? format(SYNTHESIS_USER_CHANGES, { user_diff: userDiff }) : "";
+  const userChangesSection = userDiff
+    ? format(SYNTHESIS_USER_CHANGES, { user_diff: userDiff })
+    : "";
 
   return format(SYNTHESIS_PROMPT, {
     task,
     user_changes_section: userChangesSection,
     agent_plans: plansText,
     output_file: outputFile,
-    plan_format: PLAN_FORMAT
+    plan_format: PLAN_FORMAT,
   });
 }
 
@@ -263,6 +265,6 @@ export function getRefinePrompt(params: {
     plan_file: planFile,
     output_file: outputFile,
     diff,
-    plan_format: PLAN_FORMAT
+    plan_format: PLAN_FORMAT,
   });
 }

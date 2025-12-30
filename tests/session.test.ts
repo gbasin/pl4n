@@ -82,7 +82,7 @@ describe("SessionManager", () => {
       await fs.writeFile(
         paths.turnFile(1),
         "## Questions\n\n### Q1: What database?\n**Context:** Need to choose\n**Answer:**\n\n## Summary\nTBD\n",
-        "utf8"
+        "utf8",
       );
 
       expect(await manager.hasQuestions(state.sessionId)).toBe(true);
@@ -99,7 +99,7 @@ describe("SessionManager", () => {
       await fs.writeFile(
         paths.turnFile(1),
         "## Questions\n\n### Q1: What database?\n**Context:** Need to choose\n**Answer:** PostgreSQL\n\n## Summary\nUse PostgreSQL\n",
-        "utf8"
+        "utf8",
       );
 
       expect(await manager.hasQuestions(state.sessionId)).toBe(false);

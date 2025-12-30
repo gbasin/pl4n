@@ -2,6 +2,7 @@ node_modules/
 .bun/
 .dist/
 dist/
+.thunk/
 .DS_Store
 .env
 coverage/

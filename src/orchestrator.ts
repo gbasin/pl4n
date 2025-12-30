@@ -30,7 +30,7 @@ function unifiedDiff(params: {
     params.edited,
     "",
     "",
-    { context: 3 }
+    { context: 3 },
   ).trimEnd();
 }
 
@@ -101,7 +101,7 @@ export class TurnOrchestrator {
         turn,
         outputFile: planFile,
         planFile: turn > 1 && (await fileExists(planFile)) ? planFile : "",
-        userFeedback
+        userFeedback,
       });
 
       const projectRoot = path.resolve(this.manager.thunkDir, "..");
@@ -116,7 +116,7 @@ export class TurnOrchestrator {
         logFile: sessionLog,
         timeout: this.config.timeout,
         sessionFile,
-        appendLog: true
+        appendLog: true,
       });
 
       if (success) {
@@ -163,7 +163,7 @@ export class TurnOrchestrator {
         task,
         ownDraft: drafts[agentId],
         peerId: peerPlanId,
-        peerDraft
+        peerDraft,
       });
 
       const planFile = paths.agentPlanFile(planId);
@@ -179,7 +179,7 @@ export class TurnOrchestrator {
         logFile: sessionLog,
         timeout: this.config.timeout,
         sessionFile,
-        appendLog: true
+        appendLog: true,
       });
 
       if (success) {
@@ -238,7 +238,7 @@ export class TurnOrchestrator {
         fromFile: "synthesis",
         toFile: "user-edited",
         original,
-        edited
+        edited,
       });
 
       if (diff.trim().length > 0) {
@@ -254,7 +254,7 @@ export class TurnOrchestrator {
     task: string,
     agentPlans: Record<string, string>,
     paths: { agents: string },
-    userDiff: string
+    userDiff: string,
   ): Promise<string> {
     if (Object.keys(agentPlans).length === 1) {
       return Object.values(agentPlans)[0];
@@ -273,7 +273,7 @@ export class TurnOrchestrator {
       task,
       agentPlans,
       outputFile: synthFile,
-      userDiff
+      userDiff,
     });
 
     const logFile = path.join(paths.agents, "synthesizer.log");
@@ -282,14 +282,14 @@ export class TurnOrchestrator {
     const synthSessionFile = path.join(paths.agents, "synthesizer", "cli_session_id.txt");
     await fs.mkdir(path.dirname(synthSessionFile), { recursive: true });
 
-    const [success, output] = await adapter.runSync({
+    const [success, _output] = await adapter.runSync({
       worktree: path.resolve(this.manager.thunkDir, ".."),
       prompt,
       outputFile: synthFile,
       logFile,
       timeout: this.config.timeout,
       sessionFile: synthSessionFile,
-      appendLog: true
+      appendLog: true,
     });
 
     if (success && (await fileExists(synthFile))) {
@@ -329,7 +329,7 @@ export class TurnOrchestrator {
       fromFile: `turn-${String(state.turn - 1).padStart(3, "0")}.md`,
       toFile: `turn-${String(state.turn).padStart(3, "0")}.md`,
       original: prevContent,
-      edited: currContent
+      edited: currContent,
     });
   }
 }

@@ -12,6 +12,46 @@ function outputJson(data: Record<string, unknown>, pretty = false): void {
   console.log(output);
 }
 
+function resolveThunkDir(opts: Record<string, unknown>, fallback?: string): string | undefined {
+  return (
+    (opts.thunkDir as string | undefined) ?? (opts["thunk-dir"] as string | undefined) ?? fallback
+  );
+}
+
+function resolvePretty(opts: Record<string, unknown>, fallback = false): boolean {
+  return Boolean(opts.pretty ?? opts["pretty"] ?? fallback);
+}
+
+function extractGlobalOptions(argv: string[]): {
+  argv: string[];
+  thunkDir?: string;
+  pretty: boolean;
+} {
+  const cleaned: string[] = [];
+  let thunkDir: string | undefined;
+  let pretty = false;
+
+  for (let i = 2; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--pretty") {
+      pretty = true;
+      continue;
+    }
+    if (arg === "--thunk-dir") {
+      thunkDir = argv[i + 1];
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--thunk-dir=")) {
+      thunkDir = arg.split("=", 2)[1];
+      continue;
+    }
+    cleaned.push(arg);
+  }
+
+  return { argv: [argv[0], argv[1], ...cleaned], thunkDir, pretty };
+}
+
 async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
@@ -27,6 +67,7 @@ function exitWithError(data: Record<string, unknown>, pretty: boolean): never {
 }
 
 export function runCli(argv = process.argv): void {
+  const globalOptions = extractGlobalOptions(argv);
   const prog = sade("thunk");
 
   prog
@@ -36,9 +77,9 @@ export function runCli(argv = process.argv): void {
   prog
     .command("init <task>")
     .describe("Start a new planning session")
-    .action(async (task: string, opts: { thunkDir?: string; pretty?: boolean }) => {
-      const manager = new SessionManager(opts.thunkDir);
-      const pretty = Boolean(opts.pretty);
+    .action(async (task: string, opts: Record<string, unknown>) => {
+      const manager = new SessionManager(resolveThunkDir(opts, globalOptions.thunkDir));
+      const pretty = resolvePretty(opts, globalOptions.pretty);
 
       const state = await manager.createSession(task);
       state.phase = Phase.Drafting;
@@ -49,18 +90,18 @@ export function runCli(argv = process.argv): void {
           session_id: state.sessionId,
           turn: state.turn,
           phase: state.phase,
-          hint: "call wait to block until turn complete"
+          hint: "call wait to block until turn complete",
         },
-        pretty
+        pretty,
       );
     });
 
   prog
     .command("list")
     .describe("List all planning sessions")
-    .action(async (opts: { thunkDir?: string; pretty?: boolean }) => {
-      const manager = new SessionManager(opts.thunkDir);
-      const pretty = Boolean(opts.pretty);
+    .action(async (opts: Record<string, unknown>) => {
+      const manager = new SessionManager(resolveThunkDir(opts, globalOptions.thunkDir));
+      const pretty = resolvePretty(opts, globalOptions.pretty);
 
       const sessions = await manager.listSessions();
       outputJson(
@@ -70,10 +111,10 @@ export function runCli(argv = process.argv): void {
             task: session.task,
             turn: session.turn,
             phase: session.phase,
-            updated_at: session.updatedAt.toISOString()
-          }))
+            updated_at: session.updatedAt.toISOString(),
+          })),
         },
-        pretty
+        pretty,
       );
     });
 
@@ -81,10 +122,10 @@ export function runCli(argv = process.argv): void {
     .command("status")
     .describe("Check session status without blocking")
     .option("--session", "Session ID")
-    .action(async (opts: { thunkDir?: string; pretty?: boolean; session?: string }) => {
-      const manager = new SessionManager(opts.thunkDir);
-      const pretty = Boolean(opts.pretty);
-      const sessionId = opts.session;
+    .action(async (opts: Record<string, unknown>) => {
+      const manager = new SessionManager(resolveThunkDir(opts, globalOptions.thunkDir));
+      const pretty = resolvePretty(opts, globalOptions.pretty);
+      const sessionId = opts.session as string | undefined;
 
       if (!sessionId) {
         exitWithError({ error: "Missing --session" }, pretty);
@@ -105,9 +146,9 @@ export function runCli(argv = process.argv): void {
           phase: state.phase,
           file: (await fileExists(turnFile)) ? turnFile : null,
           has_questions: await manager.hasQuestions(sessionId),
-          agents: Object.fromEntries(Object.entries(state.agents).map(([k, v]) => [k, v]))
+          agents: Object.fromEntries(Object.entries(state.agents).map(([k, v]) => [k, v])),
         },
-        pretty
+        pretty,
       );
     });
 
@@ -116,121 +157,114 @@ export function runCli(argv = process.argv): void {
     .describe("Block until current turn is complete")
     .option("--session", "Session ID")
     .option("--timeout", "Timeout in seconds")
-    .action(
-      async (opts: {
-        thunkDir?: string;
-        pretty?: boolean;
-        session?: string;
-        timeout?: string;
-      }) => {
-        const manager = new SessionManager(opts.thunkDir);
-        const pretty = Boolean(opts.pretty);
-        const sessionId = opts.session;
+    .action(async (opts: Record<string, unknown>) => {
+      const manager = new SessionManager(resolveThunkDir(opts, globalOptions.thunkDir));
+      const pretty = resolvePretty(opts, globalOptions.pretty);
+      const sessionId = opts.session as string | undefined;
 
-        if (!sessionId) {
-          exitWithError({ error: "Missing --session" }, pretty);
-        }
+      if (!sessionId) {
+        exitWithError({ error: "Missing --session" }, pretty);
+      }
 
-        const state = await manager.loadSession(sessionId);
-        if (!state) {
-          exitWithError({ error: `Session ${sessionId} not found` }, pretty);
-        }
+      const state = await manager.loadSession(sessionId);
+      if (!state) {
+        exitWithError({ error: `Session ${sessionId} not found` }, pretty);
+      }
 
-        const paths = manager.getPaths(sessionId);
-        const turnFile = paths.turnFile(state.turn);
+      const paths = manager.getPaths(sessionId);
+      const turnFile = paths.turnFile(state.turn);
 
-        if (state.phase === Phase.UserReview) {
-          outputJson(
-            {
-              turn: state.turn,
-              phase: state.phase,
-              file: turnFile,
-              has_questions: await manager.hasQuestions(sessionId),
-              hint: "User should edit file, then call continue or approve"
-            },
-            pretty
-          );
-          return;
-        }
-
-        if (state.phase === Phase.Approved) {
-          outputJson(
-            {
-              turn: state.turn,
-              phase: state.phase,
-              file: path.join(paths.root, "PLAN.md"),
-              hint: "Planning complete"
-            },
-            pretty
-          );
-          return;
-        }
-
-        if (
-          state.phase === Phase.Drafting ||
-          state.phase === Phase.Initializing ||
-          state.phase === Phase.PeerReview ||
-          state.phase === Phase.Synthesizing
-        ) {
-          const config = ThunkConfig.default();
-          if (opts.timeout) {
-            const timeoutValue = Number(opts.timeout);
-            if (!Number.isNaN(timeoutValue)) {
-              config.timeout = timeoutValue;
-            }
-          }
-          const orchestrator = new TurnOrchestrator(manager, config);
-          const success = await orchestrator.runTurn(sessionId);
-
-          const updatedState = await manager.loadSession(sessionId);
-          if (!updatedState) {
-            exitWithError({ error: "Session disappeared during turn" }, pretty);
-          }
-
-          if (success) {
-            outputJson(
-              {
-                turn: updatedState.turn,
-                phase: updatedState.phase,
-                file: turnFile,
-                has_questions: await manager.hasQuestions(sessionId),
-                hint: "User should edit file, then call continue or approve"
-              },
-              pretty
-            );
-          } else {
-            exitWithError(
-              {
-                turn: updatedState.turn,
-                phase: updatedState.phase,
-                error: "Turn failed",
-                hint: "Check agent logs in .thunk/sessions/<id>/agents/"
-              },
-              pretty
-            );
-          }
-          return;
-        }
-
-        exitWithError(
+      if (state.phase === Phase.UserReview) {
+        outputJson(
           {
             turn: state.turn,
             phase: state.phase,
-            error: `Unexpected phase: ${state.phase}`
+            file: turnFile,
+            has_questions: await manager.hasQuestions(sessionId),
+            hint: "User should edit file, then call continue or approve",
           },
-          pretty
+          pretty,
         );
+        return;
       }
-    );
+
+      if (state.phase === Phase.Approved) {
+        outputJson(
+          {
+            turn: state.turn,
+            phase: state.phase,
+            file: path.join(paths.root, "PLAN.md"),
+            hint: "Planning complete",
+          },
+          pretty,
+        );
+        return;
+      }
+
+      if (
+        state.phase === Phase.Drafting ||
+        state.phase === Phase.Initializing ||
+        state.phase === Phase.PeerReview ||
+        state.phase === Phase.Synthesizing
+      ) {
+        const config = ThunkConfig.default();
+        if (opts.timeout) {
+          const timeoutValue = Number(opts.timeout as string);
+          if (!Number.isNaN(timeoutValue)) {
+            config.timeout = timeoutValue;
+          }
+        }
+        const orchestrator = new TurnOrchestrator(manager, config);
+        const success = await orchestrator.runTurn(sessionId);
+
+        const updatedState = await manager.loadSession(sessionId);
+        if (!updatedState) {
+          exitWithError({ error: "Session disappeared during turn" }, pretty);
+        }
+
+        if (success) {
+          outputJson(
+            {
+              turn: updatedState.turn,
+              phase: updatedState.phase,
+              file: turnFile,
+              has_questions: await manager.hasQuestions(sessionId),
+              hint: "User should edit file, then call continue or approve",
+            },
+            pretty,
+          );
+        } else {
+          exitWithError(
+            {
+              turn: updatedState.turn,
+              phase: updatedState.phase,
+              error: "Turn failed",
+              hint: "Check agent logs in .thunk/sessions/<id>/agents/",
+            },
+            pretty,
+          );
+        }
+        return;
+      }
+
+      exitWithError(
+        {
+          turn: state.turn,
+          phase: state.phase,
+          error: `Unexpected phase: ${state.phase}`,
+        },
+        pretty,
+      );
+    });
 
   prog
     .command("continue")
     .describe("User done editing, start next turn")
     .option("--session", "Session ID")
-    .action(async (opts: { thunkDir?: string; pretty?: boolean; session?: string }) => {
-      const manager = new SessionManager(opts.thunkDir);
-      const pretty = Boolean(opts.pretty);
-      const sessionId = opts.session;
+    .action(async (opts: Record<string, unknown>) => {
+      const manager = new SessionManager(resolveThunkDir(opts, globalOptions.thunkDir));
+      const pretty = resolvePretty(opts, globalOptions.pretty);
+      const sessionId = opts.session as string | undefined;
 
       if (!sessionId) {
         exitWithError({ error: "Missing --session" }, pretty);
@@ -245,9 +279,9 @@ export function runCli(argv = process.argv): void {
         exitWithError(
           {
             error: `Cannot continue from phase ${state.phase}`,
-            hint: "Wait for user_review phase before continuing"
+            hint: "Wait for user_review phase before continuing",
           },
-          pretty
+          pretty,
         );
       }
 
@@ -259,9 +293,9 @@ export function runCli(argv = process.argv): void {
         {
           turn: state.turn,
           phase: state.phase,
-          hint: "call wait to block until turn complete"
+          hint: "call wait to block until turn complete",
         },
-        pretty
+        pretty,
       );
     });
 
@@ -269,10 +303,10 @@ export function runCli(argv = process.argv): void {
     .command("approve")
     .describe("Lock current plan as final")
     .option("--session", "Session ID")
-    .action(async (opts: { thunkDir?: string; pretty?: boolean; session?: string }) => {
-      const manager = new SessionManager(opts.thunkDir);
-      const pretty = Boolean(opts.pretty);
-      const sessionId = opts.session;
+    .action(async (opts: Record<string, unknown>) => {
+      const manager = new SessionManager(resolveThunkDir(opts, globalOptions.thunkDir));
+      const pretty = resolvePretty(opts, globalOptions.pretty);
+      const sessionId = opts.session as string | undefined;
 
       if (!sessionId) {
         exitWithError({ error: "Missing --session" }, pretty);
@@ -287,9 +321,9 @@ export function runCli(argv = process.argv): void {
         exitWithError(
           {
             error: `Cannot approve from phase ${state.phase}`,
-            hint: "Wait for user_review phase before approving"
+            hint: "Wait for user_review phase before approving",
           },
-          pretty
+          pretty,
         );
       }
 
@@ -297,9 +331,9 @@ export function runCli(argv = process.argv): void {
         exitWithError(
           {
             error: "Cannot approve with unanswered questions",
-            hint: "Answer all questions in the plan file first"
+            hint: "Answer all questions in the plan file first",
           },
-          pretty
+          pretty,
         );
       }
 
@@ -322,9 +356,9 @@ export function runCli(argv = process.argv): void {
           phase: state.phase,
           final_turn: state.turn,
           plan_path: planLink,
-          hint: "Planning complete. Plan is ready for implementation."
+          hint: "Planning complete. Plan is ready for implementation.",
         },
-        pretty
+        pretty,
       );
     });
 
@@ -332,10 +366,10 @@ export function runCli(argv = process.argv): void {
     .command("clean")
     .describe("Remove session and its data")
     .option("--session", "Session ID")
-    .action(async (opts: { thunkDir?: string; pretty?: boolean; session?: string }) => {
-      const manager = new SessionManager(opts.thunkDir);
-      const pretty = Boolean(opts.pretty);
-      const sessionId = opts.session;
+    .action(async (opts: Record<string, unknown>) => {
+      const manager = new SessionManager(resolveThunkDir(opts, globalOptions.thunkDir));
+      const pretty = resolvePretty(opts, globalOptions.pretty);
+      const sessionId = opts.session as string | undefined;
 
       if (!sessionId) {
         exitWithError({ error: "Missing --session" }, pretty);
@@ -352,10 +386,10 @@ export function runCli(argv = process.argv): void {
     .command("diff")
     .describe("Show changes between turns")
     .option("--session", "Session ID")
-    .action(async (opts: { thunkDir?: string; pretty?: boolean; session?: string }) => {
-      const manager = new SessionManager(opts.thunkDir);
-      const pretty = Boolean(opts.pretty);
-      const sessionId = opts.session;
+    .action(async (opts: Record<string, unknown>) => {
+      const manager = new SessionManager(resolveThunkDir(opts, globalOptions.thunkDir));
+      const pretty = resolvePretty(opts, globalOptions.pretty);
+      const sessionId = opts.session as string | undefined;
 
       if (!sessionId) {
         exitWithError({ error: "Missing --session" }, pretty);
@@ -379,11 +413,11 @@ export function runCli(argv = process.argv): void {
         {
           from_turn: state.turn - 1,
           to_turn: state.turn,
-          diff
+          diff,
         },
-        pretty
+        pretty,
       );
     });
 
-  prog.parse(argv);
+  prog.parse(globalOptions.argv);
 }
