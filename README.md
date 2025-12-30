@@ -123,6 +123,7 @@ When you edit `turns/001.md` and call `continue`, agents receive your changes as
 - Agents read/write their persistent plan file (e.g., `sunny-glade.md`)
 - After synthesis, all agent plan files are synced to the canonical state
 - Debug logs span the entire session (appended each turn)
+- `meta.yaml` stores a `config` snapshot from `.thunk/thunk.yaml` at session init
 
 ## Configuration
 

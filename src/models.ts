@@ -307,6 +307,20 @@ export class ThunkConfig {
     return ThunkConfig.loadFromFile(configPath);
   }
 
+  static fromConfigData(data: unknown, source: string): ThunkConfig {
+    if (data === undefined || data === null) {
+      throw new Error(`Invalid config ${source}: config is empty`);
+    }
+
+    try {
+      const parsed = parseThunkConfig(data);
+      return new ThunkConfig(parsed);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid config";
+      throw new Error(`Invalid config ${source}: ${message}`);
+    }
+  }
+
   static async loadFromFile(configPath: string): Promise<ThunkConfig> {
     const content = await fs.readFile(configPath, "utf8");
     let data: unknown;
@@ -316,18 +330,7 @@ export class ThunkConfig {
       const message = error instanceof Error ? error.message : "Failed to parse YAML";
       throw new Error(`Invalid config ${configPath}: ${message}`);
     }
-
-    if (data === undefined || data === null) {
-      throw new Error(`Invalid config ${configPath}: file is empty`);
-    }
-
-    try {
-      const parsed = parseThunkConfig(data);
-      return new ThunkConfig(parsed);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Invalid config";
-      throw new Error(`Invalid config ${configPath}: ${message}`);
-    }
+    return ThunkConfig.fromConfigData(data, configPath);
   }
 
   toConfigDict(): Record<string, unknown> {

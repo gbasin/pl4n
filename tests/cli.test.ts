@@ -223,6 +223,78 @@ for (const line of lines) {
     });
   });
 
+  it("wait uses session config snapshot", async () => {
+    await withTempDir(async (root) => {
+      const repoRoot = path.resolve(import.meta.dir, "..");
+      const thunkDir = path.join(root, ".thunk-test");
+      const binDir = path.join(root, "bin");
+      await fs.mkdir(binDir, { recursive: true });
+      await fs.mkdir(thunkDir, { recursive: true });
+
+      const initialConfig = [
+        "agents:",
+        "  - id: solo",
+        "    type: claude",
+        "    model: opus",
+        "synthesizer:",
+        "  id: synth",
+        "  type: claude",
+        "  model: opus",
+        "",
+      ].join("\n");
+      await fs.writeFile(path.join(thunkDir, "thunk.yaml"), initialConfig, "utf8");
+
+      await writeExecutable(
+        path.join(binDir, "claude"),
+        `#!/usr/bin/env bun
+const payload = JSON.stringify({ session_id: "sess-1", result: "# Plan from Claude" });
+process.stdout.write(payload);
+`,
+      );
+
+      await writeExecutable(
+        path.join(binDir, "codex"),
+        `#!/usr/bin/env bun
+const lines = [
+  JSON.stringify({ type: "thread.started", thread_id: "thread-1" }),
+  JSON.stringify({ type: "item.message", role: "assistant", content: "# Plan from Codex" })
+];
+for (const line of lines) {
+  process.stdout.write(line + "\\n");
+}
+`,
+      );
+
+      await withPatchedPath(binDir, async () => {
+        const init = runCli(["--thunk-dir", thunkDir, "init", "Test feature"], repoRoot);
+        const sessionId = JSON.parse(init.stdout).session_id as string;
+
+        const updatedConfig = [
+          "agents:",
+          "  - id: codex",
+          "    type: codex",
+          "    model: codex-5.2",
+          "synthesizer:",
+          "  id: synth",
+          "  type: claude",
+          "  model: opus",
+          "",
+        ].join("\n");
+        await fs.writeFile(path.join(thunkDir, "thunk.yaml"), updatedConfig, "utf8");
+
+        const waitResult = runCli(
+          ["--thunk-dir", thunkDir, "wait", "--session", sessionId],
+          repoRoot,
+        );
+        expect(waitResult.exitCode).toBe(0);
+
+        const manager = new SessionManager(thunkDir);
+        const state = await manager.loadSession(sessionId);
+        expect(state?.agentPlanIds).toEqual({ solo: expect.any(String) });
+      });
+    });
+  });
+
   it("approve creates a plan symlink", async () => {
     await withTempDir(async (root) => {
       const repoRoot = path.resolve(import.meta.dir, "..");

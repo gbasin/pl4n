@@ -1,11 +1,22 @@
 export const PLAN_FORMAT = `
-## Questions (if any)
+## Clarifications
 
-If you have questions that would affect the plan, add them here:
+Surface ambiguities early to avoid wasted work.
 
-### Q1: [Question]
-**Context:** [Why this matters]
-**Answer:**
+### Assumptions (proceeding with these — correct if wrong)
+
+| # | Assumption | Rationale | If Wrong |
+|---|------------|-----------|----------|
+| A1 | [What you're assuming] | [Why you think this] | [Impact of being wrong] |
+
+_Delete rows you disagree with, or add corrections inline._
+
+### Questions (need your input)
+
+**Q1: [Question]?**
+- Context: [Why this matters for the plan]
+- My lean: [Your best guess, even if uncertain]
+- If unanswered: [What you'll default to]
 
 ---
 
@@ -46,7 +57,11 @@ Create a plan for this task.
 ## Instructions
 1. Explore the codebase - look for AGENTS.md, README.md, or documentation
 2. Understand the project's conventions, architecture, and patterns
-3. Identify key decisions and unknowns
+3. **Surface ambiguities early:**
+   - List assumptions you're making (so the user can correct them before you waste effort)
+   - Ask questions where you genuinely need input to proceed well
+   - For EVERY question, include "My lean" — your best guess helps the user even if they're unsure
+   - Think: what could derail this plan if I'm wrong about it?
 4. Write a detailed plan
 
 Write your plan to: \`{output_file}\`

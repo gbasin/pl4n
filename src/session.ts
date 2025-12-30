@@ -47,6 +47,35 @@ export class SessionManager {
     return state;
   }
 
+  async loadConfigSnapshot(sessionId: string): Promise<ThunkConfig | null> {
+    const paths = this.getPaths(sessionId);
+    let metaContent: string;
+    try {
+      metaContent = await fs.readFile(paths.meta, "utf8");
+    } catch {
+      return null;
+    }
+
+    let meta: unknown;
+    try {
+      meta = load(metaContent);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to parse YAML";
+      throw new Error(`Invalid session meta ${paths.meta}: ${message}`);
+    }
+
+    if (typeof meta !== "object" || meta === null) {
+      return null;
+    }
+
+    const config = (meta as Record<string, unknown>).config;
+    if (config === undefined) {
+      return null;
+    }
+
+    return ThunkConfig.fromConfigData(config, `${paths.meta} config`);
+  }
+
   async loadSession(sessionId: string): Promise<SessionState | null> {
     const paths = this.getPaths(sessionId);
     try {

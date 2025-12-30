@@ -75,6 +75,24 @@ async function loadConfig(pretty: boolean, thunkDir: string): Promise<ThunkConfi
   }
 }
 
+async function loadSessionConfig(
+  manager: SessionManager,
+  sessionId: string,
+  pretty: boolean,
+): Promise<ThunkConfig> {
+  try {
+    const snapshot = await manager.loadConfigSnapshot(sessionId);
+    if (snapshot) {
+      return snapshot;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load session config";
+    exitWithError({ error: message }, pretty);
+  }
+
+  return await loadConfig(pretty, manager.thunkDir);
+}
+
 export function runCli(argv = process.argv): void {
   const globalOptions = extractGlobalOptions(argv);
   const prog = sade("thunk");
@@ -217,7 +235,7 @@ export function runCli(argv = process.argv): void {
         state.phase === Phase.PeerReview ||
         state.phase === Phase.Synthesizing
       ) {
-        const config = await loadConfig(pretty, manager.thunkDir);
+        const config = await loadSessionConfig(manager, sessionId, pretty);
         if (opts.timeout) {
           const timeoutValue = Number(opts.timeout as string);
           if (!Number.isNaN(timeoutValue)) {
@@ -414,7 +432,7 @@ export function runCli(argv = process.argv): void {
         exitWithError({ error: "Need at least 2 turns to show diff" }, pretty);
       }
 
-      const config = await loadConfig(pretty, manager.thunkDir);
+      const config = await loadSessionConfig(manager, sessionId, pretty);
       const diff = await new TurnOrchestrator(manager, config).getDiff(sessionId);
       if (!diff) {
         exitWithError({ error: "Turn files not found" }, pretty);

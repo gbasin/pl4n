@@ -80,6 +80,9 @@ describe("SessionManager", () => {
         },
         timeout: 90,
       });
+
+      const snapshot = await manager.loadConfigSnapshot(state.sessionId);
+      expect(snapshot?.toConfigDict()).toEqual(meta.config);
     });
   });
 
