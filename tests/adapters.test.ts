@@ -231,7 +231,7 @@ process.stdout.write("raw codex output");
       await writeExecutable(
         path.join(binDir, "claude"),
         `#!/usr/bin/env bun
-await new Promise((r) => setTimeout(r, 200));
+await new Promise((r) => setTimeout(r, 50));
 process.stdout.write("late output");
 `,
       );
@@ -246,7 +246,7 @@ process.stdout.write("late output");
           prompt: "test",
           outputFile,
           logFile,
-          timeout: 0.05,
+          timeout: 0.01,
         });
 
         expect(success).toBe(false);
