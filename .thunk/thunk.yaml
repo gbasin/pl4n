@@ -59,6 +59,7 @@ agents:
     model: codex-5.2
     thinking: xmax
     full_auto: true
+    search: true
     # To override full_auto, set sandbox/approval_policy below.
     # sandbox: workspace-write
     # approval_policy: on-request

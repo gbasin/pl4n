@@ -95,6 +95,13 @@ const DEFAULT_ALLOWED_TOOLS = [
   "Bash(awk:*)",
 ];
 
+const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+
+function shouldPreferOutput(config: AgentConfig): boolean {
+  const allowedTools = config.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
+  return !allowedTools.some((tool) => WRITE_TOOLS.has(tool));
+}
+
 function buildCmd(
   config: AgentConfig,
   prompt: string,
@@ -288,6 +295,14 @@ export class ClaudeCodeSyncAdapter extends AgentAdapter {
     await writeSessionId(params.sessionFile, newSessionId);
 
     if (proc.exitCode === 0) {
+      if (shouldPreferOutput(this.config) && outputText.trim().length > 0) {
+        try {
+          await fs.writeFile(params.outputFile, outputText, "utf8");
+        } catch {
+          // fall through with output
+        }
+        return [true, outputText];
+      }
       try {
         const file = Bun.file(params.outputFile);
         const exists = await file.exists();

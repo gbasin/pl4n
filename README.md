@@ -145,6 +145,7 @@ agents:
     model: codex-5.2
     thinking: xmax
     full_auto: true
+    search: true
     enabled: true
 synthesizer:
   id: synthesizer
@@ -157,8 +158,9 @@ synthesizer:
 If the file is missing, defaults are used. `--timeout` overrides the config.
 For Codex agents, `thinking` maps to the `--thinking` CLI flag.
 Codex constraints map to `full_auto`, `sandbox`, `approval_policy`, `dangerously_bypass`, `add_dir`,
-and `config_overrides`.
+`config_overrides`, and `search`.
 For Claude agents, `allowed_tools` maps to `--allowedTools`.
+Claude's allowlist is best-effort; shell commands can still write if they redirect output.
 Override `allowed_tools` per agent by setting `allowed_tools` on that agent entry.
 If you pass `--thunk-dir`, the config is loaded from that directory.
 

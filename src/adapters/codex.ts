@@ -62,6 +62,9 @@ function buildCmd(
       cmd.push("--config", override);
     }
   }
+  if (config.search) {
+    cmd.push("--search");
+  }
 
   if (config.dangerouslyBypass) {
     cmd.push("--dangerously-bypass-approvals-and-sandbox");
@@ -120,6 +123,13 @@ function parseCodexOutput(stdout: string): { threadId: string | null; finalOutpu
 
   const finalOutput = messages.length > 0 ? messages[messages.length - 1] : stdout;
   return { threadId, finalOutput };
+}
+
+function shouldPreferOutput(config: AgentConfig): boolean {
+  if (config.dangerouslyBypass) {
+    return false;
+  }
+  return config.sandbox === "read-only";
 }
 
 async function streamToLog(params: {
@@ -275,6 +285,14 @@ export class CodexCLISyncAdapter extends AgentAdapter {
     await writeThreadId(params.sessionFile, newThreadId);
 
     if (proc.exitCode === 0) {
+      if (shouldPreferOutput(this.config) && finalOutput.trim().length > 0) {
+        try {
+          await fs.writeFile(params.outputFile, finalOutput, "utf8");
+        } catch {
+          // fall through with output
+        }
+        return [true, finalOutput];
+      }
       try {
         const file = Bun.file(params.outputFile);
         const exists = await file.exists();

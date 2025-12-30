@@ -81,6 +81,10 @@ describe("ThunkConfig", () => {
     expect(config.agents[1].id).toBe("codex");
     expect(config.agents[1].model).toBe("codex-5.2");
     expect(config.agents[1].thinking).toBe("xmax");
+    expect(config.agents[1].sandbox).toBeUndefined();
+    expect(config.agents[1].approvalPolicy).toBeUndefined();
+    expect(config.agents[1].fullAuto).toBe(true);
+    expect(config.agents[1].search).toBe(true);
     expect(config.synthesizer.id).toBe("synthesizer");
     expect(config.timeout).toBeUndefined();
   });
@@ -108,6 +112,7 @@ describe("ThunkConfig", () => {
         "    sandbox: read-only",
         "    approval_policy: untrusted",
         "    dangerously_bypass: false",
+        "    search: true",
         "    add_dir:",
         "      - extra-dir",
         "    config_overrides:",
@@ -142,6 +147,7 @@ describe("ThunkConfig", () => {
         dangerouslyBypass: false,
         addDir: ["extra-dir"],
         configOverrides: ['sandbox_permissions=["disk-full-read-access"]'],
+        search: true,
         allowedTools: ["Read", "Write"],
         enabled: false,
       });

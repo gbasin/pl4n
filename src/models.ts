@@ -31,6 +31,7 @@ export interface AgentConfig {
   dangerouslyBypass?: boolean;
   addDir?: string[];
   configOverrides?: string[];
+  search?: boolean;
   enabled?: boolean;
 }
 
@@ -53,6 +54,7 @@ function defaultConfigParams(): ThunkConfigParams {
         model: "codex-5.2",
         thinking: "xmax",
         fullAuto: true,
+        search: true,
         enabled: true,
       },
     ],
@@ -139,6 +141,7 @@ function parseAgentConfig(
   const fullAutoValue = value.full_auto ?? value.fullAuto;
   const addDirValue = value.add_dir ?? value.addDir;
   const configOverridesValue = value.config_overrides ?? value.configOverrides;
+  const searchValue = value.search ?? value.web_search ?? value.webSearch;
   return {
     id: requireString(value.id, `${field}.id`),
     type: requireString(value.type, `${field}.type`),
@@ -158,6 +161,7 @@ function parseAgentConfig(
       configOverridesValue === undefined
         ? undefined
         : parseStringList(configOverridesValue, `${field}.config_overrides`),
+    search: optionalBoolean(searchValue, `${field}.search`),
     enabled: parseEnabled(value.enabled, `${field}.enabled`),
   };
 }
@@ -405,6 +409,9 @@ export class ThunkConfig {
       }
       if (agent.configOverrides && agent.configOverrides.length > 0) {
         data.config_overrides = agent.configOverrides;
+      }
+      if (agent.search !== undefined) {
+        data.search = agent.search;
       }
       if (agent.enabled !== undefined) {
         data.enabled = agent.enabled;

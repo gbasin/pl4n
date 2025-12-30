@@ -296,6 +296,7 @@ describe("Adapters", () => {
         approvalPolicy: "untrusted",
         addDir: ["extra-dir"],
         configOverrides: ['sandbox_permissions=["disk-full-read-access"]'],
+        search: true,
       });
       const syncAdapter = new CodexCLISyncAdapter({
         id: "codex-sync",
@@ -307,6 +308,7 @@ describe("Adapters", () => {
         approvalPolicy: "untrusted",
         addDir: ["extra-dir"],
         configOverrides: ['sandbox_permissions=["disk-full-read-access"]'],
+        search: true,
       });
 
       const originalSpawn = Bun.spawn;
@@ -339,6 +341,7 @@ describe("Adapters", () => {
 
       expect(commands.length).toBe(2);
       expect(commands[0]).toContain("--add-dir");
+      expect(commands[0]).toContain("--search");
       expect(commands[0]).toContain("--sandbox");
       expect(commands[0]).toContain("read-only");
       expect(commands[0]).toContain("--ask-for-approval");
@@ -354,6 +357,7 @@ describe("Adapters", () => {
       expect(commands[0]).toContain("resume");
       expect(commands[0]).toContain("thread-123");
       expect(commands[1]).toContain("--add-dir");
+      expect(commands[1]).toContain("--search");
       expect(commands[1]).toContain("--sandbox");
       expect(commands[1]).toContain("read-only");
       expect(commands[1]).toContain("--ask-for-approval");
@@ -372,6 +376,91 @@ describe("Adapters", () => {
       expect(syncAdapter.getName()).toBe("Codex CLI Sync (codex-5.2)");
       expect(await fs.readFile(logFile, "utf8")).toBe("");
       expect(await fs.readFile(logFileSync, "utf8")).toBe("");
+    });
+  });
+
+  it("Claude adapter prefers output when write tools are disabled", async () => {
+    await withTempDir(async (root) => {
+      const binDir = path.join(root, "bin");
+      await fs.mkdir(binDir, { recursive: true });
+
+      await writeExecutable(
+        path.join(binDir, "claude"),
+        `#!/usr/bin/env bun
+const payload = JSON.stringify({ session_id: "sess-1", result: "# New Plan" });
+process.stdout.write(payload);
+`,
+      );
+
+      await withPatchedPath(binDir, async () => {
+        const adapter = new ClaudeCodeSyncAdapter({
+          id: "opus",
+          type: "claude",
+          model: "opus",
+          allowedTools: ["Read"],
+        });
+        const outputFile = path.join(root, "plan.md");
+        const logFile = path.join(root, "claude.log");
+        const sessionFile = path.join(root, "claude-session.txt");
+        await fs.writeFile(outputFile, "# Old Plan", "utf8");
+
+        const [success, output] = await adapter.runSync({
+          worktree: root,
+          prompt: "test",
+          outputFile,
+          logFile,
+          sessionFile,
+        });
+
+        expect(success).toBe(true);
+        expect(output).toBe("# New Plan");
+        expect(await fs.readFile(outputFile, "utf8")).toBe("# New Plan");
+      });
+    });
+  });
+
+  it("Codex adapter prefers output in read-only sandbox", async () => {
+    await withTempDir(async (root) => {
+      const binDir = path.join(root, "bin");
+      await fs.mkdir(binDir, { recursive: true });
+
+      await writeExecutable(
+        path.join(binDir, "codex"),
+        `#!/usr/bin/env bun
+const lines = [
+  JSON.stringify({ type: "thread.started", thread_id: "thread-1" }),
+  JSON.stringify({ type: "item.message", role: "assistant", content: "# New Plan" })
+];
+for (const line of lines) {
+  process.stdout.write(line + "\\n");
+}
+`,
+      );
+
+      await withPatchedPath(binDir, async () => {
+        const adapter = new CodexCLISyncAdapter({
+          id: "codex",
+          type: "codex",
+          model: "codex-5.2",
+          sandbox: "read-only",
+        });
+        const outputFile = path.join(root, "plan.md");
+        const logFile = path.join(root, "codex.log");
+        const sessionFile = path.join(root, "codex-session.txt");
+        await fs.writeFile(outputFile, "# Old Plan", "utf8");
+
+        const [success, output] = await adapter.runSync({
+          worktree: root,
+          prompt: "test",
+          outputFile,
+          logFile,
+          sessionFile,
+        });
+
+        expect(success).toBe(true);
+        expect(output).toBe("# New Plan");
+        expect(await fs.readFile(outputFile, "utf8")).toBe("# New Plan");
+      });
     });
   });
 
