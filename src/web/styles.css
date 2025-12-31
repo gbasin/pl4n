@@ -157,6 +157,25 @@ thunk-list {
   width: 100%;
 }
 
+.line-changed {
+  background: rgba(255, 180, 50, 0.15) !important;
+}
+
+.line-changed-margin {
+  background: rgba(255, 140, 0, 0.6);
+  width: 3px !important;
+  margin-left: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .line-changed {
+    background: rgba(255, 180, 50, 0.1) !important;
+  }
+  .line-changed-margin {
+    background: rgba(255, 160, 50, 0.7);
+  }
+}
+
 .footer {
   display: flex;
   flex-wrap: wrap;

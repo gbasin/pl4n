@@ -58,6 +58,7 @@ class ThunkEditor extends LitElement {
   private showDiff = false;
   private lastLoadedContent = "";
   private suppressChange = false;
+  private decorationIds: string[] = [];
 
   createRenderRoot() {
     return this;
@@ -96,6 +97,12 @@ class ThunkEditor extends LitElement {
       scrollBeyondLastLine: false,
       readOnly: this.readOnly,
       theme,
+      fontSize: 13,
+      lineNumbersMinChars: 3,
+      glyphMargin: false,
+      folding: false,
+      lineDecorationsWidth: 4,
+      padding: { top: 8, bottom: 8 },
     });
 
     this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
@@ -112,6 +119,7 @@ class ThunkEditor extends LitElement {
       this.dirty = true;
       this.statusMessage = "Unsaved changes";
       this.scheduleDraftSave();
+      this.updateChangeDecorations();
       this.requestUpdate();
     });
 
@@ -153,6 +161,43 @@ class ThunkEditor extends LitElement {
     this.draftTimer = window.setTimeout(() => {
       void this.saveDraft();
     }, 2000);
+  }
+
+  private updateChangeDecorations() {
+    if (!this.editor) {
+      return;
+    }
+    const currentContent = this.editor.getValue();
+    const changes = diffLines(this.lastLoadedContent, currentContent);
+
+    const decorations: monaco.editor.IModelDeltaDecoration[] = [];
+    let currentLine = 1;
+
+    for (const change of changes) {
+      // Count lines: split gives n+1 parts for n newlines, but we want actual line count
+      const lines = change.value.split("\n");
+      // If ends with newline, last element is empty string
+      const lineCount = lines[lines.length - 1] === "" ? lines.length - 1 : lines.length;
+
+      if (change.added && lineCount > 0) {
+        const endLine = currentLine + lineCount - 1;
+        decorations.push({
+          range: new monaco.Range(currentLine, 1, endLine, 1),
+          options: {
+            isWholeLine: true,
+            className: "line-changed",
+            linesDecorationsClassName: "line-changed-margin",
+          },
+        });
+        currentLine += lineCount;
+      } else if (change.removed) {
+        // removed lines don't exist in current content, skip
+      } else {
+        currentLine += lineCount;
+      }
+    }
+
+    this.decorationIds = this.editor.deltaDecorations(this.decorationIds, decorations);
   }
 
   private async saveDraft() {
@@ -275,6 +320,7 @@ class ThunkEditor extends LitElement {
         this.hasDraft = false;
         this.draftContent = null;
         this.lastLoadedContent = this.editor.getValue();
+        this.updateChangeDecorations();
         this.statusMessage = "Saved";
       } else {
         this.statusMessage = `Save failed (${response.status})`;
