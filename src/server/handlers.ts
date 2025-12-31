@@ -413,6 +413,47 @@ export function createHandlers(context: HandlerContext) {
       return jsonResponse(202, { accepted: true });
     },
 
+    async handleApprove(req: Request, sessionId: string): Promise<Response> {
+      const token = parseToken(req);
+      if (!(await validateSessionToken(sessionId, token, context.manager))) {
+        return jsonResponse(401, { error: "invalid token" });
+      }
+
+      const session = await context.manager.loadSession(sessionId);
+      if (!session) {
+        return jsonResponse(404, { error: "session not found" });
+      }
+      if (session.phase !== Phase.UserReview) {
+        return jsonResponse(423, { error: "session locked" });
+      }
+
+      if (await context.manager.hasQuestions(sessionId)) {
+        return jsonResponse(400, { error: "unanswered questions" });
+      }
+
+      const paths = context.manager.getPaths(sessionId);
+      const turnFile = paths.turnFile(session.turn);
+      const planLink = path.join(paths.root, "PLAN.md");
+
+      try {
+        await fs.rm(planLink, { force: true });
+      } catch {
+        // ignore
+      }
+
+      const relativeTarget = path.relative(paths.root, turnFile);
+      await fs.symlink(relativeTarget, planLink);
+
+      session.phase = Phase.Approved;
+      await context.manager.saveState(session);
+
+      return jsonResponse(200, {
+        phase: session.phase,
+        final_turn: session.turn,
+        plan_path: planLink,
+      });
+    },
+
     async handleStatus(req: Request, sessionId: string): Promise<Response> {
       const token = parseToken(req);
       if (!(await validateSessionToken(sessionId, token, context.manager))) {

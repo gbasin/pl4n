@@ -434,15 +434,17 @@ class ThunkEditor extends LitElement {
       return;
     }
 
-    // Check if content is unchanged
+    // If no changes, approve instead of running another turn
     const currentContent = this.editor.getValue();
     if (currentContent === this.lastLoadedContent) {
       const confirmed = window.confirm(
-        "No changes detected. Running another turn will re-run the agents with the same content.\n\nContinue anyway?",
+        "No changes detected. This will approve the plan as final.\n\nApprove?",
       );
       if (!confirmed) {
         return;
       }
+      await this.approve();
+      return;
     }
 
     this.continuing = true;
@@ -481,6 +483,42 @@ class ThunkEditor extends LitElement {
     } catch {
       this.statusMessage = "Continue failed";
       this.continuing = false;
+      this.requestUpdate();
+    }
+  }
+
+  private async approve() {
+    if (this.readOnly || !this.editor) {
+      return;
+    }
+    this.statusMessage = "Approving plan...";
+    this.requestUpdate();
+    try {
+      const response = await fetch(`/api/approve/${this.session}?t=${this.token}`, {
+        method: "POST",
+      });
+      if (response.status === 400) {
+        this.statusMessage = "Cannot approve: unanswered questions";
+        this.requestUpdate();
+        return;
+      }
+      if (response.status === 423) {
+        this.statusMessage = "Plan already locked.";
+        this.readOnly = true;
+        this.requestUpdate();
+        return;
+      }
+      if (!response.ok) {
+        this.statusMessage = `Approve failed (${response.status})`;
+        this.requestUpdate();
+        return;
+      }
+      this.phase = "approved";
+      this.readOnly = true;
+      this.statusMessage = "Plan approved!";
+      this.requestUpdate();
+    } catch {
+      this.statusMessage = "Approve failed";
       this.requestUpdate();
     }
   }

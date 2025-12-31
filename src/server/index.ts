@@ -148,6 +148,14 @@ export async function startServer(opts?: Partial<ServerStart>): Promise<void> {
         return await handlers.handleStatus(req, sessionId);
       }
 
+      if (pathname.startsWith("/api/approve/")) {
+        const sessionId = pathname.split("/")[3];
+        if (!sessionId) {
+          return new Response("Not Found", { status: 404 });
+        }
+        return await handlers.handleApprove(req, sessionId);
+      }
+
       if (pathname.startsWith("/assets/")) {
         const assetPath = pathname.replace("/assets/", "");
         return await handlers.handleAssets(req, assetPath);
