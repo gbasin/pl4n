@@ -1,6 +1,8 @@
 import { LitElement, html } from "lit";
-import { diffLines, type Change } from "diff";
+import * as Diff from "diff";
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
+
+type Change = Diff.Change;
 import "monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution";
 
 function ensureMonacoWorkers(): void {
@@ -168,32 +170,126 @@ class ThunkEditor extends LitElement {
       return;
     }
     const currentContent = this.editor.getValue();
-    const changes = diffLines(this.lastLoadedContent, currentContent);
+    const lineChanges = Diff.diffLines(this.lastLoadedContent, currentContent);
 
     const decorations: monaco.editor.IModelDeltaDecoration[] = [];
-    let currentLine = 1;
+    let _origLine = 1;
+    let currLine = 1;
+    let i = 0;
 
-    for (const change of changes) {
-      // Count lines: split gives n+1 parts for n newlines, but we want actual line count
+    while (i < lineChanges.length) {
+      const change = lineChanges[i];
       const lines = change.value.split("\n");
-      // If ends with newline, last element is empty string
       const lineCount = lines[lines.length - 1] === "" ? lines.length - 1 : lines.length;
 
-      if (change.added && lineCount > 0) {
-        const endLine = currentLine + lineCount - 1;
-        decorations.push({
-          range: new monaco.Range(currentLine, 1, endLine, 1),
-          options: {
-            isWholeLine: true,
-            className: "line-changed",
-            linesDecorationsClassName: "line-changed-margin",
-          },
-        });
-        currentLine += lineCount;
+      if (change.removed && lineChanges[i + 1]?.added) {
+        // Modification: removed followed by added - do char-level diff
+        const removed = change;
+        const added = lineChanges[i + 1];
+        const removedLines = removed.value.split("\n");
+        const removedLineCount =
+          removedLines[removedLines.length - 1] === ""
+            ? removedLines.length - 1
+            : removedLines.length;
+        const addedLines = added.value.split("\n");
+        const addedLineCount =
+          addedLines[addedLines.length - 1] === "" ? addedLines.length - 1 : addedLines.length;
+
+        // Char-level diff on the modified content
+        const charChanges = (Diff as unknown as { diffChars: typeof Diff.diffLines }).diffChars(
+          removed.value,
+          added.value,
+        );
+        let line = currLine;
+        let col = 1;
+
+        for (const charChange of charChanges) {
+          if (charChange.added) {
+            // Calculate end position
+            const text = charChange.value;
+            let endLine = line;
+            let endCol = col;
+            for (const ch of text) {
+              if (ch === "\n") {
+                endLine++;
+                endCol = 1;
+              } else {
+                endCol++;
+              }
+            }
+            // Add inline decoration for added chars
+            if (endLine > line || endCol > col) {
+              decorations.push({
+                range: new monaco.Range(line, col, endLine, endCol),
+                options: {
+                  inlineClassName: "char-added",
+                },
+              });
+            }
+            line = endLine;
+            col = endCol;
+          } else if (charChange.removed) {
+            // Deleted chars - mark deletion point between lines or at position
+            // We'll show a subtle marker at deletion point
+          } else {
+            // Unchanged - advance position
+            for (const ch of charChange.value) {
+              if (ch === "\n") {
+                line++;
+                col = 1;
+              } else {
+                col++;
+              }
+            }
+          }
+        }
+
+        // Add line-level background for modified lines
+        if (addedLineCount > 0) {
+          decorations.push({
+            range: new monaco.Range(currLine, 1, currLine + addedLineCount - 1, 1),
+            options: {
+              isWholeLine: true,
+              className: "line-modified",
+              linesDecorationsClassName: "line-modified-margin",
+            },
+          });
+        }
+
+        _origLine += removedLineCount;
+        currLine += addedLineCount;
+        i += 2;
+      } else if (change.added) {
+        // Pure addition
+        if (lineCount > 0) {
+          decorations.push({
+            range: new monaco.Range(currLine, 1, currLine + lineCount - 1, 1),
+            options: {
+              isWholeLine: true,
+              className: "line-added",
+              linesDecorationsClassName: "line-added-margin",
+            },
+          });
+        }
+        currLine += lineCount;
+        i++;
       } else if (change.removed) {
-        // removed lines don't exist in current content, skip
+        // Pure deletion - show marker on next line
+        if (currLine <= this.editor.getModel()!.getLineCount()) {
+          decorations.push({
+            range: new monaco.Range(currLine, 1, currLine, 1),
+            options: {
+              linesDecorationsClassName: "line-deleted-marker",
+            },
+          });
+        }
+        _origLine += lineCount;
+        i++;
       } else {
-        currentLine += lineCount;
+        // Unchanged
+        _origLine += lineCount;
+        currLine += lineCount;
+        i++;
       }
     }
 
@@ -412,7 +508,7 @@ class ThunkEditor extends LitElement {
     if (!this.showDiff || !this.draftContent) {
       return null;
     }
-    const diff = diffLines(this.lastLoadedContent, this.draftContent);
+    const diff = Diff.diffLines(this.lastLoadedContent, this.draftContent);
     return html`
       <div class="modal-backdrop" @click=${() => (this.showDiff = false)}>
         <div class="modal" @click=${(event: Event) => event.stopPropagation()}>
