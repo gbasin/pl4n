@@ -89,8 +89,15 @@ export class SessionManager {
     const metaContent = await fs.readFile(paths.meta, "utf8");
     const stateContent = await fs.readFile(paths.state, "utf8");
 
-    const meta = load(metaContent) as { task: string; created_at: string };
-    const stateData = load(stateContent) as {
+    let meta: { task: string; created_at: string };
+    try {
+      meta = load(metaContent) as { task: string; created_at: string };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to parse YAML";
+      throw new Error(`Invalid session meta ${paths.meta}: ${message}`);
+    }
+
+    let stateData: {
       turn: number;
       phase: string;
       updated_at: string;
@@ -99,6 +106,20 @@ export class SessionManager {
       agent_plan_ids?: Record<string, string>;
       agent_errors?: Record<string, string>;
     };
+    try {
+      stateData = load(stateContent) as {
+        turn: number;
+        phase: string;
+        updated_at: string;
+        session_token?: string;
+        agents?: Record<string, string>;
+        agent_plan_ids?: Record<string, string>;
+        agent_errors?: Record<string, string>;
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to parse YAML";
+      throw new Error(`Invalid session state ${paths.state}: ${message}`);
+    }
 
     return new SessionState({
       sessionId,

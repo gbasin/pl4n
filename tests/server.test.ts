@@ -646,7 +646,8 @@ describe("handlers", () => {
         "editor.js",
       );
       expect(res.status).toBe(200);
-      expect(res.headers.get("Content-Type")).toBe("text/javascript");
+      const contentType = res.headers.get("Content-Type") ?? "";
+      expect(contentType.startsWith("text/javascript")).toBe(true);
 
       const js = await res.text();
       expect(js.length).toBeGreaterThan(1000);

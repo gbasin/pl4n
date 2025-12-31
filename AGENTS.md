@@ -38,16 +38,12 @@ bun run build      # bun build
 - Simplicity > cleverness (even if it means bigger refactors)
 - 100% test coverage (forces edge-case thinking)
 - Run `bun run lint && bun run test` after each batch of code changes
+- Oracle: bundles a prompt plus the right files so another AI (GPT 5 Pro + more) can answer. Use when really stuck. Run `npx -y @steipete/oracle --help` once per session before first use.
 
 ## UI Testing
 
 Use the `dev-browser` skill for testing web UI changes. It provides headless browser
 automation with Playwright. Start server, take screenshots, verify DOM state.
-
-Example workflow:
-1. Make CSS/HTML changes
-2. Use dev-browser to screenshot and verify rendering
-3. Check computed styles if something isn't working
 
 ## Project Overview
 

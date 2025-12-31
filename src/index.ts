@@ -2,4 +2,4 @@
 
 import { runCli } from "./cli";
 
-runCli();
+await runCli();

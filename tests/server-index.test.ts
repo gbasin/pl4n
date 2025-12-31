@@ -6,7 +6,7 @@ import { describe, expect, it } from "bun:test";
 import { Phase } from "../src/models";
 import { SessionManager } from "../src/session";
 import { ensureGlobalToken } from "../src/server/auth";
-import { startServer } from "../src/server/index";
+import { parsePortArg, resolveThunkDir, startServer } from "../src/server/index";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "thunk-server-index-"));
@@ -140,6 +140,14 @@ describe("server index", () => {
         );
         expect(statusRes.status).toBe(200);
 
+        const approveMissing = await handler(new Request(`${base}/api/approve/`));
+        expect(approveMissing.status).toBe(404);
+
+        const approveRes = await handler(
+          new Request(`${base}/api/approve/${state.sessionId}?t=${sessionToken}`),
+        );
+        expect(approveRes.status).toBe(423);
+
         const assetsRes = await handler(new Request(`${base}/assets/styles.css`));
         expect(assetsRes.status).toBe(200);
 
@@ -166,6 +174,57 @@ describe("server index", () => {
         globalThis.setInterval = originalSetInterval;
         globalThis.clearInterval = originalClearInterval;
         process.on = originalOn;
+      }
+    });
+  });
+
+  it("parses port args and environment", () => {
+    const originalPort = process.env.THUNK_PORT;
+    process.env.THUNK_PORT = "5123";
+
+    try {
+      expect(parsePortArg(["node", "server", "--port", "4040"])).toBe(4040);
+      expect(parsePortArg(["node", "server"])).toBe(5123);
+      process.env.THUNK_PORT = "bad";
+      expect(parsePortArg(["node", "server"])).toBeNull();
+    } finally {
+      if (originalPort === undefined) {
+        delete process.env.THUNK_PORT;
+      } else {
+        process.env.THUNK_PORT = originalPort;
+      }
+    }
+  });
+
+  it("resolves thunk dir from env and parent paths", async () => {
+    await withTempDir(async (root) => {
+      const originalDir = process.env.THUNK_DIR;
+      const originalCwd = process.cwd();
+      const envDir = path.join(root, ".thunk-env");
+      const nested = path.join(root, "nested", "child");
+      await fs.mkdir(envDir, { recursive: true });
+      await fs.mkdir(nested, { recursive: true });
+
+      try {
+        process.env.THUNK_DIR = envDir;
+        expect(await resolveThunkDir()).toBe(envDir);
+
+        delete process.env.THUNK_DIR;
+        const parentThunk = path.join(root, ".thunk");
+        await fs.mkdir(parentThunk, { recursive: true });
+        process.chdir(nested);
+        expect(await resolveThunkDir()).toBe(await fs.realpath(parentThunk));
+
+        await fs.rm(parentThunk, { recursive: true, force: true });
+        const nestedReal = await fs.realpath(nested);
+        expect(await resolveThunkDir()).toBe(path.join(nestedReal, ".thunk"));
+      } finally {
+        process.chdir(originalCwd);
+        if (originalDir === undefined) {
+          delete process.env.THUNK_DIR;
+        } else {
+          process.env.THUNK_DIR = originalDir;
+        }
       }
     });
   });

@@ -62,6 +62,12 @@ class ThunkEditor extends LitElement {
   private suppressChange = false;
   private decorationIds: string[] = [];
 
+  // Undo/redo history
+  private undoStack: Array<{ text: string; selectionStart: number; selectionEnd: number }> = [];
+  private redoStack: Array<{ text: string; selectionStart: number; selectionEnd: number }> = [];
+  private historyTimer: number | null = null;
+  private lastHistoryText = "";
+
   createRenderRoot() {
     return this;
   }
@@ -113,6 +119,15 @@ class ThunkEditor extends LitElement {
     this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
       void this.continueRun();
     });
+    this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyZ, () => {
+      this.undo();
+    });
+    this.editor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyZ,
+      () => {
+        this.redo();
+      },
+    );
 
     this.editor.onDidChangeModelContent(() => {
       if (this.suppressChange) {
@@ -121,6 +136,7 @@ class ThunkEditor extends LitElement {
       this.dirty = true;
       this.statusMessage = "Unsaved changes";
       this.scheduleDraftSave();
+      this.scheduleHistoryCapture();
       this.updateChangeDecorations();
       this.requestUpdate();
     });
@@ -163,6 +179,121 @@ class ThunkEditor extends LitElement {
     this.draftTimer = window.setTimeout(() => {
       void this.saveDraft();
     }, 2000);
+  }
+
+  private scheduleHistoryCapture() {
+    if (this.historyTimer !== null) {
+      window.clearTimeout(this.historyTimer);
+    }
+    this.historyTimer = window.setTimeout(() => {
+      this.captureHistory();
+    }, 250);
+  }
+
+  private captureHistory() {
+    if (!this.editor) return;
+    const text = this.editor.getValue();
+    if (text === this.lastHistoryText) return;
+
+    const selection = this.editor.getSelection();
+    const model = this.editor.getModel();
+    if (!selection || !model) return;
+
+    // Push current state before the change
+    if (this.lastHistoryText !== "") {
+      this.undoStack.push({
+        text: this.lastHistoryText,
+        selectionStart: model.getOffsetAt(selection.getStartPosition()),
+        selectionEnd: model.getOffsetAt(selection.getEndPosition()),
+      });
+    }
+    this.lastHistoryText = text;
+    this.redoStack = []; // Clear redo on new changes
+    this.requestUpdate();
+  }
+
+  private undo() {
+    if (!this.editor || this.undoStack.length === 0) return;
+
+    const current = this.editor.getValue();
+    const selection = this.editor.getSelection();
+    const model = this.editor.getModel();
+    if (!selection || !model) return;
+
+    // Save current state to redo stack
+    this.redoStack.push({
+      text: current,
+      selectionStart: model.getOffsetAt(selection.getStartPosition()),
+      selectionEnd: model.getOffsetAt(selection.getEndPosition()),
+    });
+
+    // Pop and restore from undo stack
+    const state = this.undoStack.pop()!;
+    this.suppressChange = true;
+    this.editor.setValue(state.text);
+    this.lastHistoryText = state.text;
+    this.suppressChange = false;
+
+    // Restore cursor position
+    const newModel = this.editor.getModel();
+    if (newModel) {
+      const startPos = newModel.getPositionAt(state.selectionStart);
+      const endPos = newModel.getPositionAt(state.selectionEnd);
+      this.editor.setSelection(
+        new monaco.Selection(
+          startPos.lineNumber,
+          startPos.column,
+          endPos.lineNumber,
+          endPos.column,
+        ),
+      );
+    }
+
+    this.dirty = true;
+    this.updateChangeDecorations();
+    this.requestUpdate();
+  }
+
+  private redo() {
+    if (!this.editor || this.redoStack.length === 0) return;
+
+    const current = this.editor.getValue();
+    const selection = this.editor.getSelection();
+    const model = this.editor.getModel();
+    if (!selection || !model) return;
+
+    // Save current state to undo stack
+    this.undoStack.push({
+      text: current,
+      selectionStart: model.getOffsetAt(selection.getStartPosition()),
+      selectionEnd: model.getOffsetAt(selection.getEndPosition()),
+    });
+
+    // Pop and restore from redo stack
+    const state = this.redoStack.pop()!;
+    this.suppressChange = true;
+    this.editor.setValue(state.text);
+    this.lastHistoryText = state.text;
+    this.suppressChange = false;
+
+    // Restore cursor position
+    const newModel = this.editor.getModel();
+    if (newModel) {
+      const startPos = newModel.getPositionAt(state.selectionStart);
+      const endPos = newModel.getPositionAt(state.selectionEnd);
+      this.editor.setSelection(
+        new monaco.Selection(
+          startPos.lineNumber,
+          startPos.column,
+          endPos.lineNumber,
+          endPos.column,
+        ),
+      );
+    }
+
+    this.dirty = true;
+    this.updateChangeDecorations();
+    this.requestUpdate();
   }
 
   private updateChangeDecorations() {
@@ -379,6 +510,10 @@ class ThunkEditor extends LitElement {
       this.editor?.setValue(data.content);
       this.suppressChange = false;
       this.dirty = false;
+      // Initialize undo/redo history
+      this.lastHistoryText = data.content;
+      this.undoStack = [];
+      this.redoStack = [];
       this.statusMessage = data.readOnly ? "Read-only" : "Ready";
       this.requestUpdate();
     } catch {
@@ -632,7 +767,30 @@ class ThunkEditor extends LitElement {
           }
         </div>
       </div>
+      ${this.renderUndoRedoButtons()}
       ${this.renderDiffModal()}
+    `;
+  }
+
+  private renderUndoRedoButtons() {
+    if (this.readOnly) return null;
+    const canUndo = this.undoStack.length > 0;
+    const canRedo = this.redoStack.length > 0;
+    return html`
+      <div class="undo-redo-float">
+        <button
+          class="undo-redo-btn"
+          ?disabled=${!canUndo}
+          @click=${() => this.undo()}
+          title="Undo (Cmd+Z)"
+        >↶</button>
+        <button
+          class="undo-redo-btn"
+          ?disabled=${!canRedo}
+          @click=${() => this.redo()}
+          title="Redo (Cmd+Shift+Z)"
+        >↷</button>
+      </div>
     `;
   }
 }

@@ -1,9 +1,10 @@
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
+import { Readable } from "stream";
 import { describe, expect, it } from "bun:test";
 
-import { Phase } from "../src/models";
+import { Phase, ThunkConfig } from "../src/models";
 import { SessionManager } from "../src/session";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -25,6 +26,23 @@ async function runCliCommandCapture(args: string[]): Promise<string[]> {
   try {
     const { runCliCommand } = await import("../src/cli");
     await runCliCommand(args);
+  } finally {
+    console.log = originalLog;
+  }
+
+  return logs;
+}
+
+async function runCliCapture(args: string[]): Promise<string[]> {
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (message?: unknown) => {
+    logs.push(String(message ?? ""));
+  };
+
+  try {
+    const { runCli } = await import("../src/cli");
+    await runCli(args);
   } finally {
     console.log = originalLog;
   }
@@ -89,6 +107,95 @@ describe("CLI (runCliCommand)", () => {
     });
   });
 
+  it("init reads task from stdin with --file -", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+      const originalStdin = process.stdin;
+      (process as { stdin: NodeJS.ReadableStream }).stdin = Readable.from([
+        Buffer.from("Task from stdin\n"),
+      ]);
+
+      try {
+        const logs = await runCliCommandCapture([
+          "node",
+          "thunk",
+          "--thunk-dir",
+          thunkDir,
+          "init",
+          "--file",
+          "-",
+        ]);
+
+        const data = JSON.parse(logs[0]) as { session_id: string };
+        const manager = new SessionManager(thunkDir);
+        const state = await manager.loadSession(data.session_id);
+        expect(state?.task).toBe("Task from stdin");
+      } finally {
+        (process as { stdin: NodeJS.ReadableStream }).stdin = originalStdin;
+      }
+    });
+  });
+
+  it("init errors when task file is missing", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+      const missing = path.join(root, "missing.md");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "init",
+        "--file",
+        missing,
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("Cannot read task file");
+    });
+  });
+
+  it("init errors when missing task and --file", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "init",
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("Missing task description");
+    });
+  });
+
+  it("init errors when config is invalid", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+      await fs.mkdir(thunkDir, { recursive: true });
+      await fs.writeFile(path.join(thunkDir, "thunk.yaml"), "agents: [", "utf8");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "init",
+        "Bad config",
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("Invalid config");
+    });
+  });
+
   it("list honors global options and pretty output", async () => {
     await withTempDir(async (root) => {
       const thunkDir = path.join(root, ".thunk-test");
@@ -129,6 +236,103 @@ describe("CLI (runCliCommand)", () => {
       const data = JSON.parse(logs[0]) as { file: string | null; session_id: string };
       expect(data.session_id).toBe(state.sessionId);
       expect(data.file).toBeNull();
+    });
+  });
+
+  it("status includes agent errors and file path", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+      const manager = new SessionManager(thunkDir);
+      const state = await manager.createSession("Status errors");
+      state.agentErrors = { codex: "failed" };
+      await manager.saveState(state);
+
+      const paths = manager.getPaths(state.sessionId);
+      await fs.mkdir(path.dirname(paths.turnFile(state.turn)), { recursive: true });
+      await fs.writeFile(paths.turnFile(state.turn), "## Summary\nOk\n", "utf8");
+
+      const originalWeb = process.env.THUNK_WEB;
+      process.env.THUNK_WEB = "false";
+
+      try {
+        const logs = await runCliCommandCapture([
+          "node",
+          "thunk",
+          "--thunk-dir",
+          thunkDir,
+          "status",
+          "--session",
+          state.sessionId,
+        ]);
+
+        const data = JSON.parse(logs[0]) as { agent_errors: Record<string, string>; file: string };
+        expect(data.agent_errors).toEqual({ codex: "failed" });
+        expect(data.file).toBe(paths.turnFile(state.turn));
+      } finally {
+        if (originalWeb === undefined) {
+          delete process.env.THUNK_WEB;
+        } else {
+          process.env.THUNK_WEB = originalWeb;
+        }
+      }
+    });
+  });
+
+  it("status errors when session does not exist", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "status",
+        "--session",
+        "missing-session",
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("missing-session");
+    });
+  });
+
+  it("wait errors when --session is missing", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "wait",
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("Missing --session");
+    });
+  });
+
+  it("wait errors when session does not exist", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "wait",
+        "--session",
+        "missing-session",
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("missing-session");
     });
   });
 
@@ -190,7 +394,7 @@ describe("CLI (runCliCommand)", () => {
     await withTempDir(async (root) => {
       const thunkDir = path.join(root, ".thunk-test");
       const manager = new SessionManager(thunkDir);
-      const state = await manager.createSession("Diff test");
+      const state = await manager.createSession("Diff test", ThunkConfig.default());
       state.turn = 2;
       state.phase = Phase.UserReview;
       await manager.saveState(state);
@@ -215,6 +419,362 @@ describe("CLI (runCliCommand)", () => {
       expect(data.to_turn).toBe(2);
       expect(data.diff).toContain("-Line one");
       expect(data.diff).toContain("+Line two");
+    });
+  });
+
+  it("diff errors when session does not exist", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "diff",
+        "--session",
+        "missing-session",
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("missing-session");
+    });
+  });
+
+  it("diff errors when --session is missing", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "diff",
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("Missing --session");
+    });
+  });
+
+  it("diff errors when turn is less than 2", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+      const manager = new SessionManager(thunkDir);
+      const state = await manager.createSession("Diff small");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "diff",
+        "--session",
+        state.sessionId,
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("Need at least 2 turns");
+    });
+  });
+
+  it("diff errors when turn files are missing", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+      const manager = new SessionManager(thunkDir);
+      const state = await manager.createSession("Diff missing");
+      state.turn = 2;
+      await manager.saveState(state);
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "diff",
+        "--session",
+        state.sessionId,
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("Turn files not found");
+    });
+  });
+
+  it("diff errors when session meta is invalid", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+      const manager = new SessionManager(thunkDir);
+      const state = await manager.createSession("Diff meta");
+      state.turn = 2;
+      await manager.saveState(state);
+
+      const paths = manager.getPaths(state.sessionId);
+      await fs.writeFile(paths.meta, "bad: [", "utf8");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "diff",
+        "--session",
+        state.sessionId,
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("Invalid session meta");
+    });
+  });
+
+  it("wait returns user_review with agent errors", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+      const manager = new SessionManager(thunkDir);
+      const state = await manager.createSession("Wait errors");
+      state.phase = Phase.UserReview;
+      state.agentErrors = { codex: "failed" };
+      await manager.saveState(state);
+
+      const originalWeb = process.env.THUNK_WEB;
+      process.env.THUNK_WEB = "false";
+
+      try {
+        const logs = await runCliCommandCapture([
+          "node",
+          "thunk",
+          "--thunk-dir",
+          thunkDir,
+          "wait",
+          "--session",
+          state.sessionId,
+        ]);
+
+        const data = JSON.parse(logs[0]) as { agent_errors: Record<string, string> };
+        expect(data.agent_errors).toEqual({ codex: "failed" });
+      } finally {
+        if (originalWeb === undefined) {
+          delete process.env.THUNK_WEB;
+        } else {
+          process.env.THUNK_WEB = originalWeb;
+        }
+      }
+    });
+  });
+
+  it("wait returns approved details", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+      const manager = new SessionManager(thunkDir);
+      const state = await manager.createSession("Wait approved");
+      state.phase = Phase.Approved;
+      await manager.saveState(state);
+
+      const logs = await runCliCommandCapture([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "wait",
+        "--session",
+        state.sessionId,
+      ]);
+
+      const data = JSON.parse(logs[0]) as { file: string; phase: string };
+      expect(data.phase).toBe(Phase.Approved);
+      expect(data.file).toBe(path.join(manager.getPaths(state.sessionId).root, "PLAN.md"));
+    });
+  });
+
+  it("continue advances a user_review session", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+      const manager = new SessionManager(thunkDir);
+      const state = await manager.createSession("Continue test");
+      state.phase = Phase.UserReview;
+      await manager.saveState(state);
+
+      const logs = await runCliCommandCapture([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "continue",
+        "--session",
+        state.sessionId,
+      ]);
+
+      const data = JSON.parse(logs[0]) as { turn: number; phase: string };
+      expect(data.turn).toBe(2);
+      expect(data.phase).toBe(Phase.Drafting);
+
+      const updated = await manager.loadSession(state.sessionId);
+      expect(updated?.turn).toBe(2);
+      expect(updated?.phase).toBe(Phase.Drafting);
+    });
+  });
+
+  it("continue errors when session does not exist", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "continue",
+        "--session",
+        "missing-session",
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("missing-session");
+    });
+  });
+
+  it("continue errors when --session is missing", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "continue",
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("Missing --session");
+    });
+  });
+
+  it("approve errors with unanswered questions", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+      const manager = new SessionManager(thunkDir);
+      const state = await manager.createSession("Question test");
+      state.phase = Phase.UserReview;
+      await manager.saveState(state);
+
+      const paths = manager.getPaths(state.sessionId);
+      await fs.mkdir(path.dirname(paths.turnFile(state.turn)), { recursive: true });
+      await fs.writeFile(
+        paths.turnFile(state.turn),
+        "## Questions\n\n### Q1\n**Answer:**\n\n## Summary\nTBD\n",
+        "utf8",
+      );
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "approve",
+        "--session",
+        state.sessionId,
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("Cannot approve with unanswered questions");
+    });
+  });
+
+  it("approve errors when session does not exist", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "approve",
+        "--session",
+        "missing-session",
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("missing-session");
+    });
+  });
+
+  it("approve errors when --session is missing", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "approve",
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("Missing --session");
+    });
+  });
+
+  it("clean errors when session is missing", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "clean",
+        "--session",
+        "missing-session",
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("missing-session");
+    });
+  });
+
+  it("clean errors when --session is missing", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+
+      const result = await runCliCommandExpectExit([
+        "node",
+        "thunk",
+        "--thunk-dir",
+        thunkDir,
+        "clean",
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      const data = JSON.parse(result.output) as { error: string };
+      expect(data.error).toContain("Missing --session");
+    });
+  });
+
+  it("runCli parses commands", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk-test");
+      const manager = new SessionManager(thunkDir);
+      await manager.createSession("List item");
+
+      const logs = await runCliCapture(["node", "thunk", "--thunk-dir", thunkDir, "list"]);
+      const data = JSON.parse(logs[0]) as { sessions: unknown[] };
+      expect(data.sessions.length).toBe(1);
     });
   });
 

@@ -1,8 +1,9 @@
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it } from "bun:test";
 
+import type { CliDeps } from "../src/cli";
 import { Phase } from "../src/models";
 import { SessionManager } from "../src/session";
 
@@ -316,18 +317,14 @@ process.exit(1);
       state.phase = Phase.UserReview;
       await manager.saveState(state);
 
-      mock.module("../src/server/daemon", () => ({
-        isDaemonRunning: mock(async () => ({ running: false })),
-        startDaemon: mock(async () => ({ pid: 123, port: 4567 })),
-        stopDaemon: mock(async () => true),
-      }));
-      mock.module("clipboardy", () => ({
-        default: {
-          write: mock(() => {
-            throw new Error("clipboard failed");
-          }),
+      const deps: Partial<CliDeps> = {
+        isDaemonRunning: async () => ({ running: false }),
+        startDaemon: async () => ({ pid: 123, port: 4567 }),
+        stopDaemon: async () => true,
+        writeClipboard: async () => {
+          throw new Error("clipboard failed");
         },
-      }));
+      };
 
       const logs: string[] = [];
       const originalLog = console.log;
@@ -340,15 +337,10 @@ process.exit(1);
 
       try {
         const { runCliCommand } = await import("../src/cli");
-        await runCliCommand([
-          "node",
-          "thunk",
-          "--thunk-dir",
-          thunkDir,
-          "wait",
-          "--session",
-          state.sessionId,
-        ]);
+        await runCliCommand(
+          ["node", "thunk", "--thunk-dir", thunkDir, "wait", "--session", state.sessionId],
+          deps,
+        );
       } finally {
         console.log = originalLog;
         if (originalEnv === undefined) {
@@ -356,7 +348,6 @@ process.exit(1);
         } else {
           process.env.THUNK_HOST = originalEnv;
         }
-        mock.restore();
       }
 
       const output = JSON.parse(logs[0]);
@@ -416,13 +407,13 @@ process.exit(1);
       state.phase = Phase.UserReview;
       await manager.saveState(state);
 
-      mock.module("../src/server/daemon", () => ({
-        isDaemonRunning: mock(async () => {
+      const deps: Partial<CliDeps> = {
+        isDaemonRunning: async () => {
           throw new Error("daemon down");
-        }),
-        startDaemon: mock(async () => ({ pid: 1, port: 2222 })),
-        stopDaemon: mock(async () => true),
-      }));
+        },
+        startDaemon: async () => ({ pid: 1, port: 2222 }),
+        stopDaemon: async () => true,
+      };
 
       const logs: string[] = [];
       const originalLog = console.log;
@@ -432,18 +423,12 @@ process.exit(1);
 
       try {
         const { runCliCommand } = await import("../src/cli");
-        await runCliCommand([
-          "node",
-          "thunk",
-          "--thunk-dir",
-          thunkDir,
-          "wait",
-          "--session",
-          state.sessionId,
-        ]);
+        await runCliCommand(
+          ["node", "thunk", "--thunk-dir", thunkDir, "wait", "--session", state.sessionId],
+          deps,
+        );
       } finally {
         console.log = originalLog;
-        mock.restore();
       }
 
       const output = JSON.parse(logs[0]);
@@ -455,11 +440,11 @@ process.exit(1);
     await withTempDir(async (root) => {
       const thunkDir = path.join(root, ".thunk-test");
 
-      mock.module("../src/server/daemon", () => ({
-        isDaemonRunning: mock(async () => ({ running: true, port: 5555, pid: 999 })),
-        startDaemon: mock(async () => ({ pid: 999, port: 5555 })),
-        stopDaemon: mock(async () => true),
-      }));
+      const deps: Partial<CliDeps> = {
+        isDaemonRunning: async () => ({ running: true, port: 5555, pid: 999 }),
+        startDaemon: async () => ({ pid: 999, port: 5555 }),
+        stopDaemon: async () => true,
+      };
 
       const logs: string[] = [];
       const originalLog = console.log;
@@ -472,7 +457,7 @@ process.exit(1);
 
       try {
         const { runCliCommand } = await import("../src/cli");
-        await runCliCommand(["node", "thunk", "--thunk-dir", thunkDir, "server", "status"]);
+        await runCliCommand(["node", "thunk", "--thunk-dir", thunkDir, "server", "status"], deps);
       } finally {
         console.log = originalLog;
         if (originalHost === undefined) {
@@ -480,7 +465,6 @@ process.exit(1);
         } else {
           process.env.THUNK_HOST = originalHost;
         }
-        mock.restore();
       }
 
       const output = JSON.parse(logs[0]);
@@ -548,11 +532,11 @@ process.exit(1);
     await withTempDir(async (root) => {
       const thunkDir = path.join(root, ".thunk-test");
 
-      mock.module("../src/server/daemon", () => ({
-        isDaemonRunning: mock(async () => ({ running: false })),
-        startDaemon: mock(async () => ({ pid: 321, port: 7777 })),
-        stopDaemon: mock(async () => true),
-      }));
+      const deps: Partial<CliDeps> = {
+        isDaemonRunning: async () => ({ running: false }),
+        startDaemon: async () => ({ pid: 321, port: 7777 }),
+        stopDaemon: async () => true,
+      };
 
       const logs: string[] = [];
       const originalLog = console.log;
@@ -565,8 +549,8 @@ process.exit(1);
 
       try {
         const { runCliCommand } = await import("../src/cli");
-        await runCliCommand(["node", "thunk", "--thunk-dir", thunkDir, "server", "start"]);
-        await runCliCommand(["node", "thunk", "--thunk-dir", thunkDir, "server", "stop"]);
+        await runCliCommand(["node", "thunk", "--thunk-dir", thunkDir, "server", "start"], deps);
+        await runCliCommand(["node", "thunk", "--thunk-dir", thunkDir, "server", "stop"], deps);
       } finally {
         console.log = originalLog;
         if (originalHost === undefined) {
@@ -574,7 +558,6 @@ process.exit(1);
         } else {
           process.env.THUNK_HOST = originalHost;
         }
-        mock.restore();
       }
 
       const startOutput = JSON.parse(logs[0]);
@@ -592,14 +575,14 @@ process.exit(1);
       const thunkDir = path.join(root, ".thunk-test");
       let receivedOptions: Record<string, unknown> | undefined;
 
-      mock.module("../src/server/daemon", () => ({
-        isDaemonRunning: mock(async () => ({ running: false })),
-        startDaemon: mock(async (_dir: string, options?: Record<string, unknown>) => {
+      const deps: Partial<CliDeps> = {
+        isDaemonRunning: async () => ({ running: false }),
+        startDaemon: async (_dir: string, options?: Record<string, unknown>) => {
           receivedOptions = options;
           return { pid: 111, port: (options?.port as number) ?? 0 };
-        }),
-        stopDaemon: mock(async () => true),
-      }));
+        },
+        stopDaemon: async () => true,
+      };
 
       const logs: string[] = [];
       const originalLog = console.log;
@@ -614,7 +597,7 @@ process.exit(1);
 
       try {
         const { runCliCommand } = await import("../src/cli");
-        await runCliCommand(["node", "thunk", "--thunk-dir", thunkDir, "server", "start"]);
+        await runCliCommand(["node", "thunk", "--thunk-dir", thunkDir, "server", "start"], deps);
       } finally {
         console.log = originalLog;
         if (originalHost === undefined) {
@@ -627,7 +610,6 @@ process.exit(1);
         } else {
           process.env.THUNK_PORT = originalPort;
         }
-        mock.restore();
       }
 
       expect(receivedOptions).toEqual({ port: 7788 });

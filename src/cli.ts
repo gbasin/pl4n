@@ -2,13 +2,32 @@ import { promises as fs } from "fs";
 import path from "path";
 import sade from "sade";
 
-import { Phase, ThunkConfig } from "./models";
+import { Phase, ThunkConfig, type SessionState } from "./models";
 import { TurnOrchestrator } from "./orchestrator";
 import { SessionManager } from "./session";
 import { ensureGlobalToken } from "./server/auth";
 import { isDaemonRunning, startDaemon, stopDaemon } from "./server/daemon";
 import { startServer } from "./server/index";
 import { findAvailablePort, getLocalIP } from "./server/network";
+
+type TurnOrchestratorInstance = {
+  runTurn(sessionId: string): Promise<boolean>;
+  getDiff(sessionId: string): Promise<string | null>;
+};
+
+type TurnOrchestratorCtor = new (
+  manager: SessionManager,
+  config: ThunkConfig,
+) => TurnOrchestratorInstance;
+
+export type CliDeps = {
+  TurnOrchestrator: TurnOrchestratorCtor;
+  isDaemonRunning: typeof isDaemonRunning;
+  startDaemon: typeof startDaemon;
+  stopDaemon: typeof stopDaemon;
+  startServer: typeof startServer;
+  writeClipboard: (text: string) => Promise<void>;
+};
 
 function outputJson(data: Record<string, unknown>, pretty = false): void {
   const output = pretty ? JSON.stringify(data, null, 2) : JSON.stringify(data);
@@ -59,6 +78,11 @@ function extractGlobalOptions(argv: string[]): {
       thunkDir = arg.split("=", 2)[1];
       continue;
     }
+    if ((arg === "--file" || arg === "-f") && argv[i + 1] === "-") {
+      cleaned.push(`${arg}=-`);
+      i += 1;
+      continue;
+    }
     cleaned.push(arg);
   }
 
@@ -96,18 +120,32 @@ async function copyToClipboard(text: string): Promise<void> {
   }
 }
 
+const defaultDeps: CliDeps = {
+  TurnOrchestrator,
+  isDaemonRunning,
+  startDaemon,
+  stopDaemon,
+  startServer,
+  writeClipboard: copyToClipboard,
+};
+
+function resolveDeps(overrides?: Partial<CliDeps>): CliDeps {
+  return { ...defaultDeps, ...overrides };
+}
+
 async function attachEditUrl(
   result: Record<string, unknown>,
   sessionId: string,
   manager: SessionManager,
+  deps: CliDeps,
 ): Promise<void> {
   if (!isWebEnabled()) {
     return;
   }
   try {
-    let status = await isDaemonRunning(manager.thunkDir);
+    let status = await deps.isDaemonRunning(manager.thunkDir);
     if (!status.running) {
-      const started = await startDaemon(manager.thunkDir);
+      const started = await deps.startDaemon(manager.thunkDir);
       status = { running: true, port: started.port, pid: started.pid };
     }
     if (!status.port) {
@@ -116,7 +154,11 @@ async function attachEditUrl(
     const token = await manager.ensureSessionToken(sessionId);
     const host = getLocalIP();
     const url = `http://${host}:${status.port}/edit/${sessionId}?t=${token}`;
-    await copyToClipboard(url);
+    try {
+      await deps.writeClipboard(url);
+    } catch {
+      // ignore clipboard errors
+    }
     result.edit_url = url;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to start web editor";
@@ -151,8 +193,27 @@ async function loadSessionConfig(
   return await loadConfig(pretty, manager.thunkDir);
 }
 
-function buildProgram(argv = process.argv) {
+async function loadSessionOrExit(
+  manager: SessionManager,
+  sessionId: string,
+  pretty: boolean,
+): Promise<SessionState> {
+  let state: SessionState | null = null;
+  try {
+    state = await manager.loadSession(sessionId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load session";
+    exitWithError({ error: message }, pretty);
+  }
+  if (!state) {
+    exitWithError({ error: `Session ${sessionId} not found` }, pretty);
+  }
+  return state;
+}
+
+function buildProgram(argv = process.argv, depsOverrides?: Partial<CliDeps>) {
   const globalOptions = extractGlobalOptions(argv);
+  const deps = resolveDeps(depsOverrides);
   const prog = sade("thunk");
 
   prog
@@ -162,13 +223,20 @@ function buildProgram(argv = process.argv) {
   prog
     .command("init [task]")
     .describe("Start a new planning session")
-    .option("--file, -f", "Read task description from file (use - for stdin)")
+    .option("--file, -f <path>", "Read task description from file (use - for stdin)")
     .action(async (task: string | undefined, opts: Record<string, unknown>) => {
       const manager = new SessionManager(resolveThunkDir(opts, globalOptions.thunkDir));
       const pretty = resolvePretty(opts, globalOptions.pretty);
       const config = await loadConfig(pretty, manager.thunkDir);
 
-      const filePath = (opts.file ?? opts.f) as string | undefined;
+      const fileOpt = opts.file ?? opts.f;
+      let filePath: string | undefined;
+      if (typeof fileOpt === "string") {
+        filePath = fileOpt;
+      } else if (fileOpt === true && typeof task === "string") {
+        filePath = task;
+        task = undefined;
+      }
       let taskDescription: string;
 
       if (filePath) {
@@ -247,10 +315,7 @@ function buildProgram(argv = process.argv) {
         exitWithError({ error: "Missing --session" }, pretty);
       }
 
-      const state = await manager.loadSession(sessionId);
-      if (!state) {
-        exitWithError({ error: `Session ${sessionId} not found` }, pretty);
-      }
+      const state = await loadSessionOrExit(manager, sessionId, pretty);
 
       const paths = manager.getPaths(sessionId);
       const turnFile = paths.turnFile(state.turn);
@@ -266,7 +331,7 @@ function buildProgram(argv = process.argv) {
       if (Object.keys(state.agentErrors).length > 0) {
         result.agent_errors = state.agentErrors;
       }
-      await attachEditUrl(result, sessionId, manager);
+      await attachEditUrl(result, sessionId, manager, deps);
       outputJson(result, pretty);
     });
 
@@ -284,10 +349,7 @@ function buildProgram(argv = process.argv) {
         exitWithError({ error: "Missing --session" }, pretty);
       }
 
-      const state = await manager.loadSession(sessionId);
-      if (!state) {
-        exitWithError({ error: `Session ${sessionId} not found` }, pretty);
-      }
+      const state = await loadSessionOrExit(manager, sessionId, pretty);
 
       const paths = manager.getPaths(sessionId);
       const turnFile = paths.turnFile(state.turn);
@@ -303,7 +365,7 @@ function buildProgram(argv = process.argv) {
         if (Object.keys(state.agentErrors).length > 0) {
           result.agent_errors = state.agentErrors;
         }
-        await attachEditUrl(result, sessionId, manager);
+        await attachEditUrl(result, sessionId, manager, deps);
         outputJson(result, pretty);
         return;
       }
@@ -334,7 +396,7 @@ function buildProgram(argv = process.argv) {
             config.timeout = timeoutValue;
           }
         }
-        const orchestrator = new TurnOrchestrator(manager, config);
+        const orchestrator = new deps.TurnOrchestrator(manager, config);
         const success = await orchestrator.runTurn(sessionId);
 
         const updatedState = await manager.loadSession(sessionId);
@@ -354,7 +416,7 @@ function buildProgram(argv = process.argv) {
             result.agent_errors = updatedState.agentErrors;
           }
           if (updatedState.phase === Phase.UserReview) {
-            await attachEditUrl(result, sessionId, manager);
+            await attachEditUrl(result, sessionId, manager, deps);
           }
           outputJson(result, pretty);
         } else {
@@ -394,7 +456,7 @@ function buildProgram(argv = process.argv) {
 
       if (mode === "start") {
         if (opts.foreground) {
-          const running = await isDaemonRunning(manager.thunkDir);
+          const running = await deps.isDaemonRunning(manager.thunkDir);
           if (running.running) {
             exitWithError({ error: "Server already running" }, pretty);
           }
@@ -402,13 +464,13 @@ function buildProgram(argv = process.argv) {
           const token = await ensureGlobalToken(manager.thunkDir);
           const url = `http://${getLocalIP()}:${port}/list?t=${token}`;
           outputJson({ running: true, foreground: true, port, url }, pretty);
-          await startServer({ thunkDir: manager.thunkDir, port });
+          await deps.startServer({ thunkDir: manager.thunkDir, port });
           return;
         }
 
-        let status = await isDaemonRunning(manager.thunkDir);
+        let status = await deps.isDaemonRunning(manager.thunkDir);
         if (!status.running) {
-          const started = await startDaemon(
+          const started = await deps.startDaemon(
             manager.thunkDir,
             portOverride === undefined ? {} : { port: portOverride },
           );
@@ -429,7 +491,7 @@ function buildProgram(argv = process.argv) {
       }
 
       if (mode === "stop") {
-        const stopped = await stopDaemon(manager.thunkDir);
+        const stopped = await deps.stopDaemon(manager.thunkDir);
         if (!stopped) {
           exitWithError({ error: "Server not running" }, pretty);
         }
@@ -438,7 +500,7 @@ function buildProgram(argv = process.argv) {
       }
 
       if (mode === "status") {
-        const status = await isDaemonRunning(manager.thunkDir);
+        const status = await deps.isDaemonRunning(manager.thunkDir);
         if (!status.running) {
           outputJson({ running: false }, pretty);
           return;
@@ -473,10 +535,7 @@ function buildProgram(argv = process.argv) {
         exitWithError({ error: "Missing --session" }, pretty);
       }
 
-      const state = await manager.loadSession(sessionId);
-      if (!state) {
-        exitWithError({ error: `Session ${sessionId} not found` }, pretty);
-      }
+      const state = await loadSessionOrExit(manager, sessionId, pretty);
 
       if (state.phase !== Phase.UserReview) {
         exitWithError(
@@ -515,10 +574,7 @@ function buildProgram(argv = process.argv) {
         exitWithError({ error: "Missing --session" }, pretty);
       }
 
-      const state = await manager.loadSession(sessionId);
-      if (!state) {
-        exitWithError({ error: `Session ${sessionId} not found` }, pretty);
-      }
+      const state = await loadSessionOrExit(manager, sessionId, pretty);
 
       if (state.phase !== Phase.UserReview) {
         exitWithError(
@@ -598,17 +654,14 @@ function buildProgram(argv = process.argv) {
         exitWithError({ error: "Missing --session" }, pretty);
       }
 
-      const state = await manager.loadSession(sessionId);
-      if (!state) {
-        exitWithError({ error: `Session ${sessionId} not found` }, pretty);
-      }
+      const state = await loadSessionOrExit(manager, sessionId, pretty);
 
       if (state.turn < 2) {
         exitWithError({ error: "Need at least 2 turns to show diff" }, pretty);
       }
 
       const config = await loadSessionConfig(manager, sessionId, pretty);
-      const diff = await new TurnOrchestrator(manager, config).getDiff(sessionId);
+      const diff = await new deps.TurnOrchestrator(manager, config).getDiff(sessionId);
       if (!diff) {
         exitWithError({ error: "Turn files not found" }, pretty);
       }
@@ -626,13 +679,15 @@ function buildProgram(argv = process.argv) {
   return { prog, argv: globalOptions.argv };
 }
 
-export function runCli(argv = process.argv): void {
-  const { prog, argv: parsedArgv } = buildProgram(argv);
-  prog.parse(parsedArgv);
+export async function runCli(argv = process.argv, depsOverrides?: Partial<CliDeps>): Promise<void> {
+  await runCliCommand(argv, depsOverrides);
 }
 
-export async function runCliCommand(argv = process.argv): Promise<void> {
-  const { prog, argv: parsedArgv } = buildProgram(argv);
+export async function runCliCommand(
+  argv = process.argv,
+  depsOverrides?: Partial<CliDeps>,
+): Promise<void> {
+  const { prog, argv: parsedArgv } = buildProgram(argv, depsOverrides);
   const parsed = (prog as unknown as { parse: (...args: unknown[]) => unknown }).parse(parsedArgv, {
     lazy: true,
   }) as { handler: (...args: unknown[]) => unknown; args: unknown[] } | undefined;
