@@ -39,6 +39,16 @@ bun run build      # bun build
 - 100% test coverage (forces edge-case thinking)
 - Run `bun run lint && bun run test` after each batch of code changes
 
+## UI Testing
+
+Use the `dev-browser` skill for testing web UI changes. It provides headless browser
+automation with Playwright. Start server, take screenshots, verify DOM state.
+
+Example workflow:
+1. Make CSS/HTML changes
+2. Use dev-browser to screenshot and verify rendering
+3. Check computed styles if something isn't working
+
 ## Project Overview
 
 Thunk is a multi-agent ensemble planning CLI. It orchestrates multiple AI agents

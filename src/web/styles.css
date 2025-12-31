@@ -271,11 +271,10 @@ thunk-list {
 .list-item p {
   margin: 0;
   color: var(--muted);
-  white-space: pre-wrap;
+  white-space: pre-line;
+  max-height: 9em;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 6;
-  -webkit-box-orient: vertical;
+  line-height: 1.5;
 }
 
 .list-meta {

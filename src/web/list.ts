@@ -19,6 +19,33 @@ function formatPhase(phase: string): string {
   return phase.replace(/_/g, " ");
 }
 
+function truncateTask(task: string): string {
+  // Extract first meaningful paragraph (skip headings)
+  const lines = task.split("\n");
+  const paragraphs: string[] = [];
+  let currentPara = "";
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // Skip headings and empty lines when building paragraphs
+    if (trimmed.startsWith("#") || trimmed === "") {
+      if (currentPara) {
+        paragraphs.push(currentPara.trim());
+        currentPara = "";
+      }
+      continue;
+    }
+    currentPara += (currentPara ? " " : "") + trimmed;
+  }
+  if (currentPara) {
+    paragraphs.push(currentPara.trim());
+  }
+
+  // Return first paragraph, truncated if needed
+  const first = paragraphs[0] || task.slice(0, 200);
+  return first.length > 200 ? first.slice(0, 200) + "…" : first;
+}
+
 class ThunkList extends LitElement {
   createRenderRoot() {
     return this;
@@ -48,7 +75,7 @@ class ThunkList extends LitElement {
                   <h3>${session.session_id}</h3>
                   ${approved ? html`<span class="badge approved">Approved</span>` : html``}
                 </div>
-                <p>${session.task}</p>
+                <p>${truncateTask(session.task)}</p>
                 <div class="list-meta">
                   <span>Turn ${session.turn}</span>
                   <span>${formatPhase(session.phase)}</span>

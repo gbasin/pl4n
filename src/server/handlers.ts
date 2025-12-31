@@ -69,13 +69,14 @@ function parseToken(req: Request): string | null {
 }
 
 async function resolveTemplate(fileName: string): Promise<string | null> {
-  const distPath = path.resolve(import.meta.dir, "..", "..", "dist", "web", fileName);
   const srcPath = path.resolve(import.meta.dir, "..", "web", fileName);
+  const distPath = path.resolve(import.meta.dir, "..", "..", "dist", "web", fileName);
+  // Prefer src/ for live development, fall back to dist/ for packaged builds
   try {
-    return await fs.readFile(distPath, "utf8");
+    return await fs.readFile(srcPath, "utf8");
   } catch {
     try {
-      return await fs.readFile(srcPath, "utf8");
+      return await fs.readFile(distPath, "utf8");
     } catch {
       return null;
     }
@@ -87,18 +88,19 @@ async function resolveAssetPath(assetPath: string): Promise<string | null> {
   if (normalized.includes("..")) {
     return null;
   }
-  const distRoot = path.resolve(import.meta.dir, "..", "..", "dist", "web");
   const srcRoot = path.resolve(import.meta.dir, "..", "web");
-  const distPath = path.join(distRoot, normalized);
+  const distRoot = path.resolve(import.meta.dir, "..", "..", "dist", "web");
   const srcPath = path.join(srcRoot, normalized);
+  const distPath = path.join(distRoot, normalized);
 
+  // Prefer src/ for live development, fall back to dist/ for packaged builds
   try {
-    await fs.access(distPath);
-    return distPath;
+    await fs.access(srcPath);
+    return srcPath;
   } catch {
     try {
-      await fs.access(srcPath);
-      return srcPath;
+      await fs.access(distPath);
+      return distPath;
     } catch {
       return null;
     }

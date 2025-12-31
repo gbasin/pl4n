@@ -28,6 +28,21 @@ async function readJson(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
 
+function extractListPayload(html: string): { sessions: Record<string, unknown>[] } {
+  const marker = "window.__THUNK_LIST__ = ";
+  const start = html.indexOf(marker);
+  if (start < 0) {
+    throw new Error("missing list payload");
+  }
+  const payloadStart = start + marker.length;
+  const end = html.indexOf(";", payloadStart);
+  if (end < 0) {
+    throw new Error("missing list payload terminator");
+  }
+  const json = html.slice(payloadStart, end).trim();
+  return JSON.parse(json) as { sessions: Record<string, unknown>[] };
+}
+
 describe("auth", () => {
   it("generates base64url token", () => {
     const token = generateToken();
@@ -161,6 +176,58 @@ describe("daemon", () => {
 });
 
 describe("handlers", () => {
+  it("serves edit template with read-only based on phase", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk");
+      const manager = new SessionManager(thunkDir);
+      const state = await manager.createSession("Edit task");
+      state.phase = Phase.UserReview;
+      await manager.saveState(state);
+
+      const handlers = createHandlers({ thunkDir, manager });
+      const token = state.sessionToken ?? "";
+
+      const editRes = await handlers.handleEdit(
+        new Request(`http://localhost/edit/${state.sessionId}?t=${token}`),
+        state.sessionId,
+      );
+      expect(editRes.status).toBe(200);
+      const editHtml = await editRes.text();
+      expect(editHtml).toContain(`data-session="${state.sessionId}"`);
+      expect(editHtml).toContain(`data-token="${token}"`);
+      expect(editHtml).toContain(`data-phase="${Phase.UserReview}"`);
+      expect(editHtml).toContain('data-read-only="false"');
+
+      state.phase = Phase.Approved;
+      await manager.saveState(state);
+      const readonlyRes = await handlers.handleEdit(
+        new Request(`http://localhost/edit/${state.sessionId}?t=${token}`),
+        state.sessionId,
+      );
+      expect(readonlyRes.status).toBe(200);
+      const readonlyHtml = await readonlyRes.text();
+      expect(readonlyHtml).toContain(`data-phase="${Phase.Approved}"`);
+      expect(readonlyHtml).toContain('data-read-only="true"');
+    });
+  });
+
+  it("rejects edit when token is invalid", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk");
+      const manager = new SessionManager(thunkDir);
+      const state = await manager.createSession("Edit task");
+      state.phase = Phase.UserReview;
+      await manager.saveState(state);
+
+      const handlers = createHandlers({ thunkDir, manager });
+      const res = await handlers.handleEdit(
+        new Request(`http://localhost/edit/${state.sessionId}?t=bad`),
+        state.sessionId,
+      );
+      expect(res.status).toBe(401);
+    });
+  });
+
   it("serves content and drafts", async () => {
     await withTempDir(async (root) => {
       const thunkDir = path.join(root, ".thunk");
@@ -204,6 +271,75 @@ describe("handlers", () => {
       const afterData = await readJson(afterDraft);
       expect(afterData.hasDraft).toBe(true);
       expect(afterData.draft).toBe("# Draft\n");
+    });
+  });
+
+  it("loads plan file when approved and falls back when missing", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk");
+      const manager = new SessionManager(thunkDir);
+      const state = await manager.createSession("Plan task");
+      state.phase = Phase.Approved;
+      await manager.saveState(state);
+
+      const paths = manager.getPaths(state.sessionId);
+      await fs.mkdir(path.dirname(paths.turnFile(state.turn)), { recursive: true });
+      await fs.writeFile(paths.turnFile(state.turn), "Turn content\n", "utf8");
+
+      const token = state.sessionToken ?? "";
+      const handlers = createHandlers({ thunkDir, manager });
+
+      const fallbackRes = await handlers.handleGetContent(
+        new Request(`http://localhost/api/content/${state.sessionId}?t=${token}`),
+        state.sessionId,
+      );
+      expect(fallbackRes.status).toBe(200);
+      const fallbackPayload = await readJson(fallbackRes);
+      expect(fallbackPayload.content).toBe("Turn content\n");
+      expect(fallbackPayload.readOnly).toBe(true);
+
+      await fs.writeFile(path.join(paths.root, "PLAN.md"), "Plan content\n", "utf8");
+      const planRes = await handlers.handleGetContent(
+        new Request(`http://localhost/api/content/${state.sessionId}?t=${token}`),
+        state.sessionId,
+      );
+      expect(planRes.status).toBe(200);
+      const planPayload = await readJson(planRes);
+      expect(planPayload.content).toBe("Plan content\n");
+      expect(planPayload.readOnly).toBe(true);
+    });
+  });
+
+  it("returns session list without edit links when not in user review", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk");
+      const manager = new SessionManager(thunkDir);
+      const review = await manager.createSession("<script>alert(1)</script>");
+      review.phase = Phase.UserReview;
+      await manager.saveState(review);
+      const approved = await manager.createSession("Approved task");
+      approved.phase = Phase.Approved;
+      await manager.saveState(approved);
+
+      const handlers = createHandlers({ thunkDir, manager });
+      const token = await ensureGlobalToken(thunkDir);
+      const listRes = await handlers.handleList(new Request(`http://localhost/list?t=${token}`));
+      expect(listRes.status).toBe(200);
+      const html = await listRes.text();
+      expect(html).toContain("\\u003cscript");
+
+      const payload = extractListPayload(html);
+      const reviewItem = payload.sessions.find((item) => item.session_id === review.sessionId) as
+        | Record<string, unknown>
+        | undefined;
+      const approvedItem = payload.sessions.find(
+        (item) => item.session_id === approved.sessionId,
+      ) as Record<string, unknown> | undefined;
+
+      expect(reviewItem?.edit_path).toBe(
+        `/edit/${review.sessionId}?t=${review.sessionToken ?? ""}`,
+      );
+      expect(approvedItem?.edit_path).toBeNull();
     });
   });
 
@@ -266,6 +402,105 @@ describe("handlers", () => {
     });
   });
 
+  it("rejects save and draft when session is locked", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk");
+      const manager = new SessionManager(thunkDir);
+      const state = await manager.createSession("Plan task");
+      state.phase = Phase.Approved;
+      await manager.saveState(state);
+
+      const handlers = createHandlers({ thunkDir, manager });
+      const token = state.sessionToken ?? "";
+
+      const saveRes = await handlers.handleSave(
+        new Request(`http://localhost/api/save/${state.sessionId}?t=${token}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: "Nope\n", mtime: 0 }),
+        }),
+        state.sessionId,
+      );
+      expect(saveRes.status).toBe(423);
+
+      const draftRes = await handlers.handleDraft(
+        new Request(`http://localhost/api/draft/${state.sessionId}?t=${token}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: "Draft\n" }),
+        }),
+        state.sessionId,
+      );
+      expect(draftRes.status).toBe(423);
+    });
+  });
+
+  it("deletes drafts when requested", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk");
+      const manager = new SessionManager(thunkDir);
+      const state = await manager.createSession("Plan task");
+      state.phase = Phase.UserReview;
+      await manager.saveState(state);
+
+      const handlers = createHandlers({ thunkDir, manager });
+      const token = state.sessionToken ?? "";
+
+      const draftRes = await handlers.handleDraft(
+        new Request(`http://localhost/api/draft/${state.sessionId}?t=${token}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: "Draft\n" }),
+        }),
+        state.sessionId,
+      );
+      expect(draftRes.status).toBe(200);
+
+      const deleteRes = await handlers.handleDraft(
+        new Request(`http://localhost/api/draft/${state.sessionId}?t=${token}`, {
+          method: "DELETE",
+        }),
+        state.sessionId,
+      );
+      expect(deleteRes.status).toBe(200);
+
+      const paths = manager.getPaths(state.sessionId);
+      const draftPath = path.join(
+        path.dirname(paths.turnFile(state.turn)),
+        `${String(state.turn).padStart(3, "0")}-draft.md`,
+      );
+      await expect(fs.access(draftPath)).rejects.toBeDefined();
+    });
+  });
+
+  it("rejects invalid payloads and tokens for status", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk");
+      const manager = new SessionManager(thunkDir);
+      const state = await manager.createSession("Plan task");
+      state.phase = Phase.UserReview;
+      await manager.saveState(state);
+
+      const handlers = createHandlers({ thunkDir, manager });
+
+      const badSave = await handlers.handleSave(
+        new Request(`http://localhost/api/save/${state.sessionId}?t=${state.sessionToken ?? ""}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: "Missing mtime\n" }),
+        }),
+        state.sessionId,
+      );
+      expect(badSave.status).toBe(400);
+
+      const statusRes = await handlers.handleStatus(
+        new Request(`http://localhost/api/status/${state.sessionId}?t=bad`),
+        state.sessionId,
+      );
+      expect(statusRes.status).toBe(401);
+    });
+  });
+
   it("validates tokens and serves list", async () => {
     await withTempDir(async (root) => {
       const thunkDir = path.join(root, ".thunk");
@@ -290,6 +525,20 @@ describe("handlers", () => {
         "styles.css",
       );
       expect(assetRes.status).toBe(200);
+    });
+  });
+
+  it("rejects asset traversal attempts", async () => {
+    await withTempDir(async (root) => {
+      const thunkDir = path.join(root, ".thunk");
+      const manager = new SessionManager(thunkDir);
+      const handlers = createHandlers({ thunkDir, manager });
+
+      const res = await handlers.handleAssets(
+        new Request("http://localhost/assets/../secret"),
+        "../secret",
+      );
+      expect(res.status).toBe(404);
     });
   });
 
