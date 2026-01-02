@@ -145,7 +145,8 @@ export function parseMarkdown(text: string): ReturnType<typeof schema.node> {
     }
 
     const language = match[1];
-    const content = match[2];
+    // Trim trailing newline that appears before closing ```
+    const content = match[2].replace(/\n$/, "");
 
     // Check if it's a diagram
     if (isDiagram(content)) {

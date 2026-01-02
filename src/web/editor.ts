@@ -514,7 +514,10 @@ Try editing this text to see the diff highlighting in action!`;
             <h1>${this.session}</h1>
             <div class="header-meta">Turn ${this.turn} - ${formatPhase(this.phase)}</div>
           </div>
-          ${approved ? html`<span class="badge approved">Approved</span>` : html``}
+          <div class="header-actions">
+            ${this.renderUndoRedoButtons()}
+            ${approved ? html`<span class="badge approved">Approved</span>` : html``}
+          </div>
         </div>
 
         ${
@@ -559,7 +562,7 @@ Try editing this text to see the diff highlighting in action!`;
           }
         </div>
       </div>
-      ${this.renderUndoRedoButtons()} ${this.renderAutosaveDiffModal()}
+      ${this.renderAutosaveDiffModal()}
     `;
   }
 
