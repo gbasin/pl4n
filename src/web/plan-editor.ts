@@ -37,14 +37,27 @@ function extractTextWithPositions(doc: Node): { text: string; positions: number[
   const text: string[] = [];
   const positions: number[] = [];
 
-  doc.descendants((node, pos) => {
-    if (node.isText && node.text) {
-      for (let i = 0; i < node.text.length; i++) {
-        text.push(node.text[i]);
-        positions.push(pos + i);
+  const appendText = (node: Node, basePos: number) => {
+    node.descendants((child, pos) => {
+      if (child.isText && child.text) {
+        for (let i = 0; i < child.text.length; i++) {
+          text.push(child.text[i]);
+          positions.push(basePos + pos + 1 + i);
+        }
+      } else if (child.type.name === "hard_break") {
+        text.push("\n");
+        positions.push(basePos + pos + 1);
       }
+      return true;
+    });
+  };
+
+  doc.forEach((block, pos, index) => {
+    appendText(block, pos);
+    if (index < doc.childCount - 1) {
+      text.push("\n");
+      positions.push(pos + block.nodeSize);
     }
-    return true;
   });
 
   return { text: text.join(""), positions };
@@ -63,31 +76,104 @@ function createDiffDecorations(doc: Node, baseline: Node | null): DecorationSet 
   }
 
   const decorations: Decoration[] = [];
-  const changes = Diff.diffChars(base.text, current.text);
+  const changes = Diff.diffLines(base.text, current.text);
 
   let currentIdx = 0;
-  let _baseIdx = 0;
 
-  for (const change of changes) {
+  const addInlineRange = (startIdx: number, endIdx: number) => {
+    const startPos = current.positions[startIdx];
+    const endPos = current.positions[endIdx];
+    if (startPos !== undefined && endPos !== undefined) {
+      decorations.push(Decoration.inline(startPos, endPos + 1, { class: "diff-added" }));
+    }
+  };
+
+  const addInline = (startIdx: number, value: string) => {
+    if (!value) {
+      return;
+    }
+    let runStart = -1;
+    for (let offset = 0; offset < value.length; offset++) {
+      if (value[offset] === "\n") {
+        if (runStart >= 0) {
+          addInlineRange(startIdx + runStart, startIdx + offset - 1);
+          runStart = -1;
+        }
+        continue;
+      }
+      if (runStart < 0) {
+        runStart = offset;
+      }
+    }
+    if (runStart >= 0) {
+      addInlineRange(startIdx + runStart, startIdx + value.length - 1);
+    }
+  };
+
+  const addRemoved = (insertIdx: number, removedText: string) => {
+    if (!removedText) {
+      return;
+    }
+    const markerPos =
+      current.positions[insertIdx] ??
+      (current.positions.length > 0 ? current.positions[current.positions.length - 1] + 1 : 0);
+    let safePos = Math.max(0, Math.min(markerPos, doc.content.size));
+    if (!removedText.includes("\n") && safePos > 0) {
+      const resolved = doc.resolve(safePos);
+      if (!resolved.parent.isTextblock) {
+        const shifted = safePos - 1;
+        if (doc.resolve(shifted).parent.isTextblock) {
+          safePos = shifted;
+        }
+      }
+    }
+    decorations.push(
+      Decoration.widget(
+        safePos,
+        () => {
+          const ghost = document.createElement("span");
+          ghost.className = "diff-removed";
+          ghost.textContent = removedText;
+          ghost.setAttribute("aria-hidden", "true");
+          ghost.contentEditable = "false";
+          return ghost;
+        },
+        { side: 1, ignoreSelection: true },
+      ),
+    );
+  };
+
+  for (let i = 0; i < changes.length; i++) {
+    const change = changes[i];
     const len = change.value.length;
 
-    if (change.added) {
-      // Added text - highlight in current doc
-      const startPos = current.positions[currentIdx];
-      const endPos = current.positions[currentIdx + len - 1];
+    if (change.removed && changes[i + 1]?.added) {
+      const removed = change.value;
+      const added = changes[i + 1]?.value ?? "";
+      const charChanges = Diff.diffChars(removed, added);
+      let lineIdx = 0;
 
-      if (startPos !== undefined && endPos !== undefined) {
-        decorations.push(Decoration.inline(startPos, endPos + 1, { class: "diff-added" }));
+      for (const charChange of charChanges) {
+        const charLen = charChange.value.length;
+        if (charChange.added) {
+          addInline(currentIdx + lineIdx, charChange.value);
+          lineIdx += charLen;
+        } else if (charChange.removed) {
+          addRemoved(currentIdx + lineIdx, charChange.value);
+        } else {
+          lineIdx += charLen;
+        }
       }
+
+      currentIdx += added.length;
+      i += 1;
+    } else if (change.added) {
+      addInline(currentIdx, change.value);
       currentIdx += len;
     } else if (change.removed) {
-      // Removed text - just track position, no inline marker
-      // Users can see deletions via "Show Diff" button
-      _baseIdx += len;
+      addRemoved(currentIdx, change.value);
     } else {
-      // Unchanged
       currentIdx += len;
-      _baseIdx += len;
     }
   }
 

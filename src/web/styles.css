@@ -512,6 +512,19 @@ pl4n-list {
   border-radius: 2px;
 }
 
+.diff-removed {
+  display: inline-block;
+  width: 0;
+  overflow: visible;
+  white-space: pre;
+  pointer-events: none;
+  background: rgba(220, 80, 80, 0.15);
+  color: rgba(220, 80, 80, 0.9);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  border-radius: 2px;
+}
+
 /* Full-screen diagram viewer */
 .diagram-viewer-backdrop {
   position: fixed;
@@ -524,12 +537,14 @@ pl4n-list {
   padding: 20px;
   opacity: 0;
   visibility: hidden;
+  pointer-events: none;
   transition: opacity 0.2s, visibility 0.2s;
 }
 
 .diagram-viewer-backdrop.open {
   opacity: 1;
   visibility: visible;
+  pointer-events: auto;
 }
 
 .diagram-viewer-container {
@@ -622,12 +637,14 @@ pl4n-list {
   padding: 20px;
   opacity: 0;
   visibility: hidden;
+  pointer-events: none;
   transition: opacity 0.2s, visibility 0.2s;
 }
 
 .diff-viewer-backdrop.open {
   opacity: 1;
   visibility: visible;
+  pointer-events: auto;
 }
 
 .diff-viewer-container {

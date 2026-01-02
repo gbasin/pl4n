@@ -1,6 +1,8 @@
 /**
  * DiffTextarea - A mobile-friendly textarea with character-level diff highlighting
  *
+ * Deprecated: kept for reference; the main web editor now uses PlanEditor.
+ *
  * Uses a transparent textarea overlaid on a highlight layer for:
  * - Native iOS autocomplete/autocorrect support
  * - Character-level diff highlighting
