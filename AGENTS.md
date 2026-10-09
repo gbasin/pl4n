@@ -38,7 +38,6 @@ bun run build      # bun build
 - Simplicity > cleverness (even if it means bigger refactors)
 - 100% test coverage (forces edge-case thinking)
 - Run `bun run lint && bun run test` after each batch of code changes
-- Oracle: bundles a prompt plus the right files so another AI (GPT 5 Pro + more) can answer. Use when really stuck. Run `npx -y @steipete/oracle --help` once per session before first use.
 
 ## UI Testing
 
